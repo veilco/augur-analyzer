@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stateshape/predictions.global/server/pkg/augur"
-	"github.com/stateshape/predictions.global/server/pkg/env"
-	"github.com/stateshape/predictions.global/server/pkg/pricing"
-	"github.com/stateshape/predictions.global/server/pkg/proto/markets"
+	"github.com/stateshape/augur-analyzer/pkg/augur"
+	"github.com/stateshape/augur-analyzer/pkg/env"
+	"github.com/stateshape/augur-analyzer/pkg/pricing"
+	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 
 	"cloud.google.com/go/storage"
 	"github.com/ethereum/go-ethereum"

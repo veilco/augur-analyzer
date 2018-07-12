@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stateshape/predictions.global/server/pkg/env"
-	"github.com/stateshape/predictions.global/server/pkg/pricing"
+	"github.com/stateshape/augur-analyzer/pkg/env"
+	"github.com/stateshape/augur-analyzer/pkg/pricing"
 
 	"github.com/stretchr/testify/assert"
 )

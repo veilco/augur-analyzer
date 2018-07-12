@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stateshape/predictions.global/server/pkg/augur"
-	"github.com/stateshape/predictions.global/server/pkg/proto/markets"
+	"github.com/stateshape/augur-analyzer/pkg/augur"
+	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 )
 
 type Outcome struct {

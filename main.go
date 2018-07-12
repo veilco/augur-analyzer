@@ -7,12 +7,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stateshape/predictions.global/server/pkg/augur"
-	"github.com/stateshape/predictions.global/server/pkg/env"
-	"github.com/stateshape/predictions.global/server/pkg/gcloud"
-	"github.com/stateshape/predictions.global/server/pkg/markets"
-	"github.com/stateshape/predictions.global/server/pkg/pricing"
-	"github.com/stateshape/predictions.global/server/pkg/web3"
+	"github.com/stateshape/augur-analyzer/pkg/augur"
+	"github.com/stateshape/augur-analyzer/pkg/env"
+	"github.com/stateshape/augur-analyzer/pkg/gcloud"
+	"github.com/stateshape/augur-analyzer/pkg/markets"
+	"github.com/stateshape/augur-analyzer/pkg/pricing"
+	"github.com/stateshape/augur-analyzer/pkg/web3"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
