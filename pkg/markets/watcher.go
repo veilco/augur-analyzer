@@ -260,6 +260,12 @@ func translateMarketInfoToMarket(info *augur.MarketInfo, ethusd, btceth float64)
 		MarketCapitalization: marketCapitalization,
 		EndDate:              info.EndTime,
 		Predictions:          predictions,
+		Author:               info.Author,
+		CreationTime:         info.CreationTime,
+		CreationBlock:        info.CreationBlock,
+		ResolutionSource:     info.ResolutionSource,
+		Details:              info.Details,
+		Tags:                 info.Tags,
 		IsFeatured:           featured,
 		Category:             info.Category,
 	}, nil
