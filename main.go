@@ -31,15 +31,19 @@ func environment() {
 	viper.SetDefault(env.HTTPServerPort, "49990")
 	viper.SetDefault(env.HTTPServerNetworkInterface, "localhost")
 	viper.SetDefault(env.GoogleApplicationCredentials, "")
-	viper.SetDefault(env.GCloudProjectID, "predictions-global-prod")
-	viper.SetDefault(env.GCloudStorageBucket, "predictions-global-prod")
-	viper.SetDefault(env.GCloudStorageMarketsObjectName, "markets.pb")
+	viper.SetDefault(env.GCloudProjectID, "")
+	viper.SetDefault(env.GCloudStorageBucket, "")
+	viper.SetDefault(env.GCloudStorageMarketsObjectName, "")
 	viper.AutomaticEnv()
 
 	required := []string{
 		env.EthereumHostHTTP,
 		env.CoinbaseAPIKey,
 		env.CoinbaseAPISecret,
+		env.AugurRootUniverse,
+		env.GCloudProjectID,
+		env.GCloudStorageBucket,
+		env.GCloudStorageMarketsObjectName,
 	}
 	for _, envvar := range required {
 		if viper.GetString(envvar) == "" {
