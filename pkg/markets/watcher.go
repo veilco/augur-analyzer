@@ -248,6 +248,8 @@ func translateMarketInfoToMarket(info *augur.MarketInfo, ethusd, btceth float64)
 		return nil, err
 	}
 
+	_, featured := featuredlist[info.Id]
+
 	return &markets.Market{
 		Id:                   info.Id,
 		MarketType:           marketType,
@@ -256,6 +258,8 @@ func translateMarketInfoToMarket(info *augur.MarketInfo, ethusd, btceth float64)
 		MarketCapitalization: marketCapitalization,
 		EndDate:              info.EndTime,
 		Predictions:          predictions,
+		IsFeatured:           featured,
+		Category:             info.Category,
 	}, nil
 
 }
