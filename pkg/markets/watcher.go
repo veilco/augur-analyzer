@@ -163,6 +163,7 @@ func (w *Watcher) process() error {
 			TotalMarkets:               uint64(len(m)),
 			TotalMarketsCapitalization: deriveTotalMarketsCapitalization(m),
 			Markets:                    m,
+			GenerationTime:             uint64(time.Now().Unix()),
 		}
 
 		serialized, err := proto.Marshal(summary)
