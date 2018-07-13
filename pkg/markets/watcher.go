@@ -188,11 +188,13 @@ func (w *Watcher) process() error {
 		}
 		if _, err := w.Write(serialized); err != nil {
 			logrus.WithError(err).Errorf("Failed to write markets summary to GCloud storage")
-		} else {
-			// Update block tracker
-			lastProcessedBlockNumber = header.Number
+			continue
 		}
-		w.Close()
+		if err := w.Close(); err != nil {
+			logrus.WithError(err).Errorf("Failed to close writer for markets summary to GCloud storage")
+			continue
+		}
+		lastProcessedBlockNumber = header.Number
 
 		logrus.WithField("blockNumber", header.Number.String()).Infof("Finished processing block")
 	}
