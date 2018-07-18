@@ -231,7 +231,7 @@ func (w *Watcher) process() error {
 				logrus.WithError(err).Errorf("Failed to close writer for markets snapshot to GCloud storage")
 				return
 			}
-
+			logrus.WithField("blockNumber", header.Number.String()).Infof("Uploaded snapshot file")
 		}()
 
 		logrus.WithField("blockNumber", header.Number.String()).Infof("Finished processing block")
@@ -448,12 +448,17 @@ func mapMarketInfos(infosByAddress map[string]*augur.MarketInfo) []*markets.Mark
 			logrus.WithField("reportingState", info.ReportingState).
 				Warnf("Unable to assign reporting state for market info, unhandled enum from augur proto")
 		}
-		m.Consensus = &markets.NormalizedPayout{
-			IsInvalid: info.Consensus.IsInvalid,
-			Payout:    info.Consensus.Payout,
+		if info.Consensus != nil {
+			m.Consensus = &markets.NormalizedPayout{
+				IsInvalid: info.Consensus.IsInvalid,
+				Payout:    info.Consensus.Payout,
+			}
 		}
 		m.Outcomes = []*markets.OutcomeInfo{}
 		for _, outcome := range info.Outcomes {
+			if outcome == nil {
+				continue
+			}
 			m.Outcomes = append(m.Outcomes, &markets.OutcomeInfo{
 				Id:          outcome.Id,
 				Volume:      outcome.Volume,
