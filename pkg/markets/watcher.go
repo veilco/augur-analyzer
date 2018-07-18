@@ -11,6 +11,7 @@ import (
 
 	"github.com/stateshape/augur-analyzer/pkg/augur"
 	"github.com/stateshape/augur-analyzer/pkg/env"
+	"github.com/stateshape/augur-analyzer/pkg/gcloud"
 	"github.com/stateshape/augur-analyzer/pkg/pricing"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 
@@ -189,22 +190,21 @@ func (w *Watcher) process() error {
 		logrus.Infof("Successfully serialized a market summary for block #%s", header.Number.String())
 
 		// Upload to Google Cloud
-		bkt := w.StorageAPI.Bucket(viper.GetString(env.GCloudStorageBucket))
-		obj := bkt.Object(MARKETS_SUMMARIES_OBJECT)
-		wrtr := obj.NewWriter(context.Background())
-		wrtr.ContentType = "application/octet-stream"
-		wrtr.CacheControl = "public, max-age=15"
-		wrtr.ACL = []storage.ACLRule{
-			{storage.AllUsers, storage.RoleReader},
-		}
-		if _, err := wrtr.Write(serializedSummary); err != nil {
+		if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
+			Bucket:     viper.GetString(env.GCloudStorageBucket),
+			ObjectName: MARKETS_SUMMARIES_OBJECT,
+			Content:    serializedSummary,
+		}, func(wrtr *storage.Writer) {
+			wrtr.ContentType = "application/octet-stream"
+			wrtr.CacheControl = "public, max-age=15"
+			wrtr.ACL = []storage.ACLRule{
+				{storage.AllUsers, storage.RoleReader},
+			}
+		}); err != nil {
 			logrus.WithError(err).Errorf("Failed to write markets summary to GCloud storage")
 			continue
 		}
-		if err := wrtr.Close(); err != nil {
-			logrus.WithError(err).Errorf("Failed to close writer for markets summary to GCloud storage")
-			continue
-		}
+
 		lastProcessedBlockNumber = header.Number
 
 		go func() {
@@ -215,20 +215,19 @@ func (w *Watcher) process() error {
 				}).WithError(fmt.Errorf("Failed to protobuf serialize markets snapshot"))
 				return
 			}
-			bkt := w.StorageAPI.Bucket(viper.GetString(env.GCloudStorageBucket))
-			obj := bkt.Object(MARKETS_SNAPSHOT_OBJECT)
-			wrtr := obj.NewWriter(context.Background())
-			wrtr.ContentType = "application/octet-stream"
-			wrtr.CacheControl = "public, max-age=15"
-			wrtr.ACL = []storage.ACLRule{
-				{storage.AllUsers, storage.RoleReader},
-			}
-			if _, err := wrtr.Write(serializedSnapshot); err != nil {
+
+			if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
+				Bucket:     viper.GetString(env.GCloudStorageBucket),
+				ObjectName: MARKETS_SNAPSHOT_OBJECT,
+				Content:    serializedSnapshot,
+			}, func(wrtr *storage.Writer) {
+				wrtr.ContentType = "application/octet-stream"
+				wrtr.CacheControl = "public, max-age=15"
+				wrtr.ACL = []storage.ACLRule{
+					{storage.AllUsers, storage.RoleReader},
+				}
+			}); err != nil {
 				logrus.WithError(err).Errorf("Failed to write markets snapshot to GCloud storage")
-				return
-			}
-			if err := wrtr.Close(); err != nil {
-				logrus.WithError(err).Errorf("Failed to close writer for markets snapshot to GCloud storage")
 				return
 			}
 			logrus.WithField("blockNumber", header.Number.String()).Infof("Uploaded snapshot file")
