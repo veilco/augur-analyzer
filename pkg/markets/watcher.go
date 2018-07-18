@@ -25,7 +25,7 @@ import (
 
 const (
 	MARKETS_SUMMARIES_OBJECT = "markets.pb"
-	MARKETS_SNAPSHOT_OBJECT  = "snapshot.pb"
+	MARKETS_SNAPSHOT_OBJECT  = "snapshot"
 )
 
 const (
