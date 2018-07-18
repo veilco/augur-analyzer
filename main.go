@@ -33,7 +33,6 @@ func environment() {
 	viper.SetDefault(env.GoogleApplicationCredentials, "")
 	viper.SetDefault(env.GCloudProjectID, "")
 	viper.SetDefault(env.GCloudStorageBucket, "")
-	viper.SetDefault(env.GCloudStorageMarketsObjectName, "")
 	viper.AutomaticEnv()
 
 	required := []string{
@@ -43,7 +42,6 @@ func environment() {
 		env.AugurRootUniverse,
 		env.GCloudProjectID,
 		env.GCloudStorageBucket,
-		env.GCloudStorageMarketsObjectName,
 	}
 	for _, envvar := range required {
 		if viper.GetString(envvar) == "" {
