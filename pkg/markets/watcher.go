@@ -381,6 +381,8 @@ func mapMarketInfos(infosByAddress map[string]*augur.MarketInfo) []*markets.Mark
 		if _, ok := blacklist[id]; ok {
 			continue
 		}
+
+		// Map equal types
 		m := &markets.MarketInfo{
 			Id:                        info.Id,
 			Universe:                  info.Universe,
@@ -423,7 +425,7 @@ func mapMarketInfos(infosByAddress map[string]*augur.MarketInfo) []*markets.Mark
 			// Outcomes:                  info.Outcomes,
 		}
 
-		// Map reporting state
+		// Map non equal types
 		switch info.ReportingState {
 		case augur.ReportingState_PRE_REPORTING:
 			m.ReportingState = markets.ReportingState_PRE_REPORTING
