@@ -24,6 +24,11 @@ import (
 )
 
 const (
+	MARKETS_SUMMARIES_OBJECT = "markets.pb"
+	MARKETS_SNAPSHOT_OBJECT  = "snapshot.pb"
+)
+
+const (
 	MarketTypeYesNo       = "yesNo"
 	MarketTypeScalar      = "scalar"
 	MarketTypeCategorical = "categorical"
@@ -166,7 +171,12 @@ func (w *Watcher) process() error {
 			GenerationTime:             uint64(time.Now().Unix()),
 		}
 
-		serialized, err := proto.Marshal(summary)
+		snapshot := &markets.MarketsSnapshot{
+			MarketsSummary: summary,
+			MarketInfos:    mapMarketInfos(infosByAddress),
+		}
+
+		serializedSummary, err := proto.Marshal(summary)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
 				"blockNumber": header.Number.String(),
@@ -174,28 +184,55 @@ func (w *Watcher) process() error {
 			continue
 		}
 
-		w.Cache.LastMarketsSummary = serialized
+		w.Cache.LastMarketsSummary = serializedSummary
 
 		logrus.Infof("Successfully serialized a market summary for block #%s", header.Number.String())
 
 		// Upload to Google Cloud
 		bkt := w.StorageAPI.Bucket(viper.GetString(env.GCloudStorageBucket))
-		obj := bkt.Object(viper.GetString(env.GCloudStorageMarketsObjectName))
-		w := obj.NewWriter(context.Background())
-		w.ContentType = "application/octet-stream"
-		w.CacheControl = "public, max-age=15"
-		w.ACL = []storage.ACLRule{
+		obj := bkt.Object(MARKETS_SUMMARIES_OBJECT)
+		wrtr := obj.NewWriter(context.Background())
+		wrtr.ContentType = "application/octet-stream"
+		wrtr.CacheControl = "public, max-age=15"
+		wrtr.ACL = []storage.ACLRule{
 			{storage.AllUsers, storage.RoleReader},
 		}
-		if _, err := w.Write(serialized); err != nil {
+		if _, err := wrtr.Write(serializedSummary); err != nil {
 			logrus.WithError(err).Errorf("Failed to write markets summary to GCloud storage")
 			continue
 		}
-		if err := w.Close(); err != nil {
+		if err := wrtr.Close(); err != nil {
 			logrus.WithError(err).Errorf("Failed to close writer for markets summary to GCloud storage")
 			continue
 		}
 		lastProcessedBlockNumber = header.Number
+
+		go func() {
+			serializedSnapshot, err := proto.Marshal(snapshot)
+			if err != nil {
+				logrus.WithFields(logrus.Fields{
+					"blockNumber": header.Number.String(),
+				}).WithError(fmt.Errorf("Failed to protobuf serialize markets snapshot"))
+				return
+			}
+			bkt := w.StorageAPI.Bucket(viper.GetString(env.GCloudStorageBucket))
+			obj := bkt.Object(MARKETS_SNAPSHOT_OBJECT)
+			wrtr := obj.NewWriter(context.Background())
+			wrtr.ContentType = "application/octet-stream"
+			wrtr.CacheControl = "public, max-age=15"
+			wrtr.ACL = []storage.ACLRule{
+				{storage.AllUsers, storage.RoleReader},
+			}
+			if _, err := wrtr.Write(serializedSnapshot); err != nil {
+				logrus.WithError(err).Errorf("Failed to write markets snapshot to GCloud storage")
+				return
+			}
+			if err := wrtr.Close(); err != nil {
+				logrus.WithError(err).Errorf("Failed to close writer for markets snapshot to GCloud storage")
+				return
+			}
+
+		}()
 
 		logrus.WithField("blockNumber", header.Number.String()).Infof("Finished processing block")
 	}
@@ -336,4 +373,95 @@ func getPredictions(info *augur.MarketInfo) ([]*markets.Prediction, error) {
 		predictions = append(predictions, getScalarPredictions(m, os)...)
 	}
 	return predictions, nil
+}
+
+func mapMarketInfos(infosByAddress map[string]*augur.MarketInfo) []*markets.MarketInfo {
+	mis := []*markets.MarketInfo{}
+	for id, info := range infosByAddress {
+		if _, ok := blacklist[id]; ok {
+			continue
+		}
+		m := &markets.MarketInfo{
+			Id:                        info.Id,
+			Universe:                  info.Universe,
+			MarketType:                info.MarketType,
+			NumOutcomes:               info.NumOutcomes,
+			MinPrice:                  info.MinPrice,
+			MaxPrice:                  info.MaxPrice,
+			CumulativeScale:           info.CumulativeScale,
+			Author:                    info.Author,
+			CreationTime:              info.CreationTime,
+			CreationBlock:             info.CreationBlock,
+			CreationFee:               info.CreationFee,
+			SettlementFee:             info.SettlementFee,
+			ReportingFeeRate:          info.ReportingFeeRate,
+			MarketCreatorFeeRate:      info.MarketCreatorFeeRate,
+			MarketCreatorFeesBalance:  info.MarketCreatorFeesBalance,
+			MarketCreatorMailbox:      info.MarketCreatorMailbox,
+			MarketCreatorMailboxOwner: info.MarketCreatorMailboxOwner,
+			InitialReportSize:         info.InitialReportSize,
+			Category:                  info.Category,
+			Tags:                      info.Tags,
+			Volume:                    info.Volume,
+			OutstandingShares:         info.OutstandingShares,
+			FeeWindow:                 info.FeeWindow,
+			EndTime:                   info.EndTime,
+			FinalizationBlockNumber:   info.FinalizationBlockNumber,
+			FinalizationTime:          info.FinalizationTime,
+			// ReportingState:            info.ReportingState,
+			Forking:            info.Forking,
+			NeedsMigration:     info.NeedsMigration,
+			Description:        info.Description,
+			Details:            info.Details,
+			ScalarDenomination: info.ScalarDenomination,
+			DesignatedReporter: info.DesignatedReporter,
+			ResolutionSource:   info.ResolutionSource,
+			NumTicks:           info.NumTicks,
+			TickSize:           info.TickSize,
+			// Consensus:                 info.Consensus,
+			// Outcomes:                  info.Outcomes,
+		}
+
+		// Map reporting state
+		switch info.ReportingState {
+		case augur.ReportingState_PRE_REPORTING:
+			m.ReportingState = markets.ReportingState_PRE_REPORTING
+		case augur.ReportingState_DESIGNATED_REPORTING:
+			m.ReportingState = markets.ReportingState_DESIGNATED_REPORTING
+		case augur.ReportingState_OPEN_REPORTING:
+			m.ReportingState = markets.ReportingState_OPEN_REPORTING
+		case augur.ReportingState_CROWDSOURCING_DISPUTE:
+			m.ReportingState = markets.ReportingState_CROWDSOURCING_DISPUTE
+		case augur.ReportingState_AWAITING_NEXT_WINDOW:
+			m.ReportingState = markets.ReportingState_AWAITING_NEXT_WINDOW
+		case augur.ReportingState_AWAITING_FINALIZATION:
+			m.ReportingState = markets.ReportingState_AWAITING_FINALIZATION
+		case augur.ReportingState_FINALIZED:
+			m.ReportingState = markets.ReportingState_FINALIZED
+		case augur.ReportingState_FORKING:
+			m.ReportingState = markets.ReportingState_FORKING
+		case augur.ReportingState_AWAITING_NO_REPORT_MIGRATION:
+			m.ReportingState = markets.ReportingState_AWAITING_NO_REPORT_MIGRATION
+		case augur.ReportingState_AWAITING_FORK_MIGRATION:
+			m.ReportingState = markets.ReportingState_AWAITING_FORK_MIGRATION
+		default:
+			logrus.WithField("reportingState", info.ReportingState).
+				Warnf("Unable to assign reporting state for market info, unhandled enum from augur proto")
+		}
+		m.Consensus = &markets.NormalizedPayout{
+			IsInvalid: info.Consensus.IsInvalid,
+			Payout:    info.Consensus.Payout,
+		}
+		m.Outcomes = []*markets.OutcomeInfo{}
+		for _, outcome := range info.Outcomes {
+			m.Outcomes = append(m.Outcomes, &markets.OutcomeInfo{
+				Id:          outcome.Id,
+				Volume:      outcome.Volume,
+				Price:       outcome.Price,
+				Description: outcome.Description,
+			})
+		}
+		mis = append(mis, m)
+	}
+	return mis
 }
