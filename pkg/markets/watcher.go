@@ -53,6 +53,10 @@ type BlockHeaderSubscriber struct {
 	BlockHeaderStream chan *types.Header
 }
 
+type marketProcessingData struct {
+	Info *augur.MarketInfo
+}
+
 func NewWatcher(pricingAPI pricing.PricingClient, web3API *ethclient.Client, augurAPI augur.MarketsApiClient, storageAPI *storage.Client) *Watcher {
 	return &Watcher{pricingAPI, web3API, augurAPI, storageAPI, &WatcherCache{
 		LastMarketsSummary: []byte{},
@@ -102,15 +106,18 @@ func (w *Watcher) process() error {
 			continue
 		}
 
-		// Query market info
+		// Aggregate market data
 		marketAddresses := getMarketsResponse.MarketAddresses
 		infosByAddress := map[string]*augur.MarketInfo{}
-		for x := 0; x < len(marketAddresses); x += 10 {
-			limit := x + 10
+		chunkSize := 20
+		for x := 0; x < len(marketAddresses); x += chunkSize {
+			limit := x + chunkSize
 			if limit > len(marketAddresses) {
 				limit = len(marketAddresses)
 			}
 			addresses := marketAddresses[x:limit]
+
+			// Market Info
 			getMarketsInfoResponse, err := w.AugurAPI.GetMarketsInfo(context.TODO(), &augur.GetMarketsInfoRequest{
 				MarketAddresses: addresses,
 			})
@@ -122,9 +129,43 @@ func (w *Watcher) process() error {
 			for _, mi := range getMarketsInfoResponse.MarketInfo {
 				infosByAddress[mi.Id] = mi
 			}
+
+			// Market orders
+			bulkGetOrdersResponse, err := w.AugurAPI.BulkGetOrders(context.TODO(), &augur.BulkGetOrdersRequest{
+				Requests: func() []*augur.GetOrdersRequest {
+					requests := []*augur.GetOrdersRequest{}
+					for _, address := range addresses {
+						requests = append(requests, &augur.GetOrdersRequest{
+							Universe:   viper.GetString(env.AugurRootUniverse),
+							MarketId:   address,
+							OrderState: augur.OrderState_OPEN,
+						})
+					}
+					return requests
+				}(),
+			})
+			if err != nil {
+				logrus.WithError(err).WithField("block", header.Number.String()).
+					Errorf("Call to augur-node `BulkGetOrders` failed")
+				continue
+			}
+
+			// Market price history
+			bulkGetPriceHistoryResponse, err := w.AugurAPI.BulkGetMarketPriceHistory(context.TODO(), &augur.BulkGetMarketPriceHistoryRequest{
+				Requests: func() []*augur.GetMarketPriceHistoryRequest {
+					requests := []*augur.GetMarketPriceHistoryRequest{}
+					for _, address := range addresses {
+						requests = append(requests, &augur.GetMarketPriceHistoryRequest{
+							MarketId: address,
+						})
+					}
+					return requests
+				}(),
+			})
+
 		}
 
-		// Construct market summary structure and serialize to Protobuf
+		// Query exchange rates
 		ethusd, err := w.PricingAPI.ETHtoUSD()
 		if err != nil {
 			logrus.WithError(err).Errorf("Failed to get ETH USD exchange rate")
