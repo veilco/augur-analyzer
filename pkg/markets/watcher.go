@@ -54,7 +54,9 @@ type BlockHeaderSubscriber struct {
 }
 
 type marketProcessingData struct {
-	Info *augur.MarketInfo
+	Info         *augur.MarketInfo
+	Orders       *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome
+	PriceHistory *augur.GetMarketPriceHistoryResponse
 }
 
 func NewWatcher(pricingAPI pricing.PricingClient, web3API *ethclient.Client, augurAPI augur.MarketsApiClient, storageAPI *storage.Client) *Watcher {
@@ -106,9 +108,23 @@ func (w *Watcher) process() error {
 			continue
 		}
 
-		// Aggregate market data
-		marketAddresses := getMarketsResponse.MarketAddresses
+		marketAddressesUnfiltered := getMarketsResponse.MarketAddresses
+
+		// Filter out blacklist here
+		marketAddresses := []string{}
+		marketProcessingDataByMarketID := map[string]*marketProcessingData{}
 		infosByAddress := map[string]*augur.MarketInfo{}
+		for _, address := range marketAddressesUnfiltered {
+			if _, ok := blacklist[address]; !ok {
+				marketAddresses = append(marketAddresses, address)
+				marketProcessingDataByMarketID[address] = &marketProcessingData{}
+			}
+			logrus.WithFields(logrus.Fields{
+				"address": address,
+			}).Infof("Skipping blacklisted market")
+		}
+
+		// Aggregate market data
 		chunkSize := 20
 		for x := 0; x < len(marketAddresses); x += chunkSize {
 			limit := x + chunkSize
@@ -127,6 +143,7 @@ func (w *Watcher) process() error {
 				continue
 			}
 			for _, mi := range getMarketsInfoResponse.MarketInfo {
+				marketProcessingDataByMarketID[mi.Id].Info = mi
 				infosByAddress[mi.Id] = mi
 			}
 
@@ -149,6 +166,16 @@ func (w *Watcher) process() error {
 					Errorf("Call to augur-node `BulkGetOrders` failed")
 				continue
 			}
+			// Assume each response corresponds to one market
+			// since that is how the request is structured
+			for _, response := range bulkGetOrdersResponse.Responses {
+				for marketAddress, orders := range response.OrdersByOrderIdByOrderTypeByOutcomeByMarketId {
+					if marketProcessingDataByMarketID[marketAddress].Orders != nil {
+						logrus.WithField("marketAddress", marketAddress).Errorf("Received multiple get orders responses for one market")
+					}
+					marketProcessingDataByMarketID[marketAddress].Orders = orders
+				}
+			}
 
 			// Market price history
 			bulkGetPriceHistoryResponse, err := w.AugurAPI.BulkGetMarketPriceHistory(context.TODO(), &augur.BulkGetMarketPriceHistoryRequest{
@@ -162,6 +189,14 @@ func (w *Watcher) process() error {
 					return requests
 				}(),
 			})
+			if err != nil {
+				logrus.WithError(err).WithField("block", header.Number.String()).
+					Errorf("Call to augur-node `BulkGetMarketPriceHistory` failed")
+				continue
+			}
+			for marketAddress, priceHistory := range bulkGetPriceHistoryResponse.ResponsesByMarketId {
+				marketProcessingDataByMarketID[marketAddress].PriceHistory = priceHistory
+			}
 
 		}
 
@@ -178,7 +213,8 @@ func (w *Watcher) process() error {
 		}
 
 		m := []*markets.Market{}
-		for _, info := range infosByAddress {
+		for _, processingData := range marketProcessingDataByMarketID {
+			info := processingData.Info
 			if _, ok := blacklist[info.Id]; ok {
 				logrus.WithFields(logrus.Fields{
 					"id":          info.Id,
