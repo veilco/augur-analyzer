@@ -7,11 +7,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stateshape/augur-analyzer/pkg/augur"
 	"github.com/stateshape/augur-analyzer/pkg/env"
 	"github.com/stateshape/augur-analyzer/pkg/gcloud"
 	"github.com/stateshape/augur-analyzer/pkg/markets"
 	"github.com/stateshape/augur-analyzer/pkg/pricing"
+	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 	"github.com/stateshape/augur-analyzer/pkg/web3"
 
 	"github.com/gin-gonic/gin"

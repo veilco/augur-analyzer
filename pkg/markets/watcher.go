@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stateshape/augur-analyzer/pkg/augur"
 	"github.com/stateshape/augur-analyzer/pkg/env"
 	"github.com/stateshape/augur-analyzer/pkg/gcloud"
 	"github.com/stateshape/augur-analyzer/pkg/pricing"
+	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 
 	"cloud.google.com/go/storage"

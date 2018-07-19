@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stateshape/augur-analyzer/pkg/augur"
+	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 )
 
 func PrintMarketInfoByDescription(infoByAddress map[string]augur.MarketInfo, description string) {

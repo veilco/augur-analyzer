@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stateshape/augur-analyzer/pkg/augur"
+	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 )
 
