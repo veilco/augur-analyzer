@@ -63,7 +63,7 @@ func (w *Watcher) Watch() {
 	initial := true
 	for {
 		if !initial {
-			<-time.After(time.Second * 2)
+			<-time.After(time.Second * 2) // Avoid looping incessantly
 		} else {
 			initial = false
 		}
