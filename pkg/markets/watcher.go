@@ -125,7 +125,7 @@ func (w *Watcher) process() error {
 
 		m := []*markets.Market{}
 		for _, md := range marketsData.ByMarketID {
-			market, err := translateMarketInfoToMarket(md.Info, marketsData.ExchangeRates.ETHUSD, marketsData.ExchangeRates.BTCETH)
+			market, err := translateMarketInfoToMarket(md, marketsData.ExchangeRates.ETHUSD, marketsData.ExchangeRates.BTCETH)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{
 					"block":         header.Number.String(),
@@ -166,7 +166,6 @@ func (w *Watcher) process() error {
 			}).WithError(err).Errorf("Failed to protobuf serialize market summary")
 			continue
 		}
-
 		if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
 			Bucket:     viper.GetString(env.GCloudStorageBucket),
 			ObjectName: MARKETS_SUMMARIES_OBJECT,
@@ -194,7 +193,6 @@ func (w *Watcher) process() error {
 				}).WithError(fmt.Errorf("Failed to protobuf serialize markets snapshot"))
 				return
 			}
-
 			if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
 				Bucket:     viper.GetString(env.GCloudStorageBucket),
 				ObjectName: MARKETS_SNAPSHOT_OBJECT,
@@ -226,51 +224,52 @@ func deriveTotalMarketsCapitalization(ms []*markets.Market) *markets.Price {
 	return price
 }
 
-func translateMarketInfoToMarket(info *augur.MarketInfo, ethusd, btceth float64) (*markets.Market, error) {
-	if info == nil {
+func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*markets.Market, error) {
+	if md.Info == nil {
 		return nil, fmt.Errorf("`translateMarketInfoToMarket` required a non nil MarketInfo as an argument")
 	}
 
-	marketCapitalization, err := translateMarketInfoToMarketCapitalization(info, ethusd, btceth)
+	marketCapitalization, err := translateMarketInfoToMarketCapitalization(md.Info, ethusd, btceth)
 	if err != nil {
 		logrus.WithError(err).
-			WithField("marketInfo", *info).
+			WithField("marketInfo", *md.Info).
 			Errorf("Failed to translate market info into market capitalization")
 		return nil, err
 	}
-	predictions, err := getPredictions(info)
+	predictions, err := getPredictions(md.Info, md.Orders)
 	if err != nil {
 		logrus.WithError(err).
-			WithField("marketInfo", *info).
+			WithField("marketInfo", md.Info).
 			Errorf("Failed to translate market info into predictions")
 		return nil, err
 	}
-	marketType, err := getMarketType(info)
+	marketType, err := getMarketType(md.Info)
 	if err != nil {
 		logrus.WithError(err).
-			WithField("marketInfo", *info).
+			WithField("marketInfo", *md.Info).
 			Errorf("Failed to get market type")
 		return nil, err
 	}
 
-	_, featured := featuredlist[info.Id]
+	_, featured := featuredlist[md.Info.Id]
 
 	return &markets.Market{
-		Id:                   info.Id,
+		Id:                   md.Info.Id,
 		MarketType:           marketType,
-		Name:                 info.Description,
+		Name:                 md.Info.Description,
 		CommentCount:         0,
 		MarketCapitalization: marketCapitalization,
-		EndDate:              info.EndTime,
+		EndDate:              md.Info.EndTime,
 		Predictions:          predictions,
-		Author:               info.Author,
-		CreationTime:         info.CreationTime,
-		CreationBlock:        info.CreationBlock,
-		ResolutionSource:     info.ResolutionSource,
-		Details:              info.Details,
-		Tags:                 info.Tags,
+		Author:               md.Info.Author,
+		CreationTime:         md.Info.CreationTime,
+		CreationBlock:        md.Info.CreationBlock,
+		ResolutionSource:     md.Info.ResolutionSource,
+		Details:              md.Info.Details,
+		Tags:                 md.Info.Tags,
 		IsFeatured:           featured,
-		Category:             info.Category,
+		Category:             md.Info.Category,
+		LastTradeTime:        getLastTradeTimeFromPriceHistory(md.PriceHistory.MarketPriceHistory),
 	}, nil
 
 }
@@ -308,7 +307,7 @@ func getMarketType(info *augur.MarketInfo) (markets.MarketType, error) {
 	return 0, fmt.Errorf("Failed to parse market type: %s", info.MarketType)
 }
 
-func getPredictions(info *augur.MarketInfo) ([]*markets.Prediction, error) {
+func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) ([]*markets.Prediction, error) {
 	if info == nil {
 		return []*markets.Prediction{}, fmt.Errorf("Non nil MarketInfo required")
 	}
@@ -328,14 +327,18 @@ func getPredictions(info *augur.MarketInfo) ([]*markets.Prediction, error) {
 	}
 
 	// Generate the list of predictions for the market
-	predictions := []*markets.Prediction{}
+	predictions, err := []*markets.Prediction{}, nil
 	switch info.MarketType {
 	case MarketTypeYesNo:
-		predictions = append(predictions, getYesNoPredictions(m, os)...)
+		predictions, err = getYesNoPredictions(m, os, orders)
 	case MarketTypeCategorical:
-		predictions = append(predictions, getCategoricalPredictions(m, os)...)
+		predictions, err = getCategoricalPredictions(m, os, orders)
 	case MarketTypeScalar:
-		predictions = append(predictions, getScalarPredictions(m, os)...)
+		predictions, err = getScalarPredictions(m, os, orders)
+	}
+	if err != nil {
+		logrus.WithError(err).Errorf("Failed to get predictions for market")
+		return []*markets.Prediction{}, err
 	}
 	return predictions, nil
 }
@@ -484,7 +487,7 @@ func (w *Watcher) getMarketsData(ctx context.Context, marketAddresses []string) 
 		// Assume each response corresponds to one market
 		// since that is how the request is structured
 		for _, response := range bulkGetOrdersResponse.Responses {
-			for marketAddress, orders := range response.OrdersByOrderIdByOrderTypeByOutcomeByMarketId {
+			for marketAddress, orders := range response.Wrapper.OrdersByOrderIdByOrderTypeByOutcomeByMarketId {
 				if marketDataByID[marketAddress].Orders != nil {
 					logrus.WithField("marketAddress", marketAddress).Warn("Received multiple get orders responses for one market")
 				}
@@ -533,4 +536,16 @@ func (w *Watcher) getMarketsData(ctx context.Context, marketAddresses []string) 
 			BTCETH: btceth,
 		},
 	}, nil
+}
+
+func getLastTradeTimeFromPriceHistory(priceHistory *augur.MarketPriceHistory) uint64 {
+	mostRecent := uint64(0)
+	for _, timestampedPrices := range priceHistory.TimestampedPriceAmountByOutcome {
+		for _, timestampedPrice := range timestampedPrices.TimestampedPriceAmounts {
+			if timestampedPrice.Timestamp > mostRecent {
+				mostRecent = timestampedPrice.Timestamp
+			}
+		}
+	}
+	return mostRecent
 }
