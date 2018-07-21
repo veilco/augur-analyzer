@@ -135,7 +135,7 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 			if order.OrderState != augur.OrderState_OPEN {
 				continue
 			}
-			price, err := strconv.ParseFloat(order.Price, 64)
+			price, err := strconv.ParseFloat(order.Price, 32)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{
 					"orderPrice":           order.Price,
@@ -145,7 +145,7 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 				}).Errorf("Failed to parse order price from string")
 				return map[uint64]*markets.LiquidityAtPrice{}, err
 			}
-			amount, err := strconv.ParseFloat(order.Amount, 64)
+			amount, err := strconv.ParseFloat(order.Amount, 32)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{
 					"orderPrice":           order.Price,
