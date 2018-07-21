@@ -110,6 +110,7 @@ func (w *Watcher) process() error {
 		for _, address := range marketAddressesUnfiltered {
 			if _, ok := blacklist[address]; !ok {
 				marketAddresses = append(marketAddresses, address)
+				continue
 			}
 			logrus.WithFields(logrus.Fields{
 				"address": address,
@@ -250,6 +251,20 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 			Errorf("Failed to get market type")
 		return nil, err
 	}
+	bestBids, err := getBestBids(md.Orders)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get best bids")
+		return nil, err
+	}
+	bestAsks, err := getBestAsks(md.Orders)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get best asks")
+		return nil, err
+	}
 
 	_, featured := featuredlist[md.Info.Id]
 
@@ -270,6 +285,8 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		IsFeatured:           featured,
 		Category:             md.Info.Category,
 		LastTradeTime:        getLastTradeTimeFromPriceHistory(md.PriceHistory.MarketPriceHistory),
+		BestBids:             bestBids,
+		BestAsks:             bestAsks,
 	}, nil
 
 }
@@ -327,18 +344,14 @@ func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_Orde
 	}
 
 	// Generate the list of predictions for the market
-	predictions, err := []*markets.Prediction{}, nil
+	predictions := []*markets.Prediction{}
 	switch info.MarketType {
 	case MarketTypeYesNo:
-		predictions, err = getYesNoPredictions(m, os, orders)
+		predictions = append(predictions, getYesNoPredictions(m, os)...)
 	case MarketTypeCategorical:
-		predictions, err = getCategoricalPredictions(m, os, orders)
+		predictions = append(predictions, getCategoricalPredictions(m, os)...)
 	case MarketTypeScalar:
-		predictions, err = getScalarPredictions(m, os, orders)
-	}
-	if err != nil {
-		logrus.WithError(err).Errorf("Failed to get predictions for market")
-		return []*markets.Prediction{}, err
+		predictions = append(predictions, getScalarPredictions(m, os)...)
 	}
 	return predictions, nil
 }

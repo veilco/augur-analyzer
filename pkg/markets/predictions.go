@@ -61,19 +61,22 @@ func convertToOutcomes(ois []*augur.OutcomeInfo) ([]*Outcome, error) {
 
 // For each outcome we want to find the highest buy orders and
 // the lowest sell orders
-func getBidAskForOutcomes(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.BidAsk, error) {
-	bidasks := map[uint64]*markets.BidAsk{}
+func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.LiquidityAtPrice, error) {
+	bestBidsByOutcome := map[uint64]*markets.LiquidityAtPrice{}
+
+	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
+		return bestBidsByOutcome, nil
+	}
+
 	for outcome, ordersByOrderType := range orders.OrdersByOrderIdByOrderTypeByOutcome {
-		// If there are no buy and no sell orders then the bidask for the outcome should be nil
-		if len(ordersByOrderType.BuyOrdersByOrderId.OrdersByOrderId) == 0 || len(ordersByOrderType.SellOrdersByOrderId.OrdersByOrderId) == 0 {
-			bidasks[outcome] = nil
+		bestBidsByOutcome[outcome] = &markets.LiquidityAtPrice{
+			Price:  0.0,
+			Amount: 0.0,
+		}
+		if ordersByOrderType.BuyOrdersByOrderId == nil || len(ordersByOrderType.BuyOrdersByOrderId.OrdersByOrderId) == 0 {
 			continue
 		}
 
-		// Zero out all the values
-		bidasks[outcome] = &markets.BidAsk{}
-
-		// Find best buy order
 		for _, order := range ordersByOrderType.BuyOrdersByOrderId.OrdersByOrderId {
 			if order.OrderState != augur.OrderState_OPEN {
 				continue
@@ -86,7 +89,7 @@ func getBidAskForOutcomes(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrder
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
 				}).Errorf("Failed to parse order price from string")
-				return map[uint64]*markets.BidAsk{}, err
+				return map[uint64]*markets.LiquidityAtPrice{}, err
 			}
 			amount, err := strconv.ParseFloat(order.Amount, 64)
 			if err != nil {
@@ -96,15 +99,38 @@ func getBidAskForOutcomes(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrder
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
 				}).Errorf("Failed to parse order amount from string")
-				return map[uint64]*markets.BidAsk{}, err
+				return map[uint64]*markets.LiquidityAtPrice{}, err
 			}
-			if float64(bidasks[outcome].BestBid) < price {
-				bidasks[outcome].BestBid = float32(price)
-				bidasks[outcome].BestBidQuantity = float32(amount)
+
+			// Accumulate all liquidity at the highest bid price
+			if float64(bestBidsByOutcome[outcome].Price) == price {
+				bestBidsByOutcome[outcome].Price += float32(price)
+				bestBidsByOutcome[outcome].Amount += float32(amount)
+			} else if float64(bestBidsByOutcome[outcome].Price) < price {
+				bestBidsByOutcome[outcome].Price = float32(price)
+				bestBidsByOutcome[outcome].Amount = float32(amount)
 			}
 		}
+	}
+	return bestBidsByOutcome, nil
+}
 
-		// Find best sell order
+func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.LiquidityAtPrice, error) {
+	bestAsksByOutcome := map[uint64]*markets.LiquidityAtPrice{}
+
+	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
+		return bestAsksByOutcome, nil
+	}
+
+	for outcome, ordersByOrderType := range orders.OrdersByOrderIdByOrderTypeByOutcome {
+		bestAsksByOutcome[outcome] = &markets.LiquidityAtPrice{
+			Price:  0.0,
+			Amount: 0.0,
+		}
+		if ordersByOrderType.SellOrdersByOrderId == nil || len(ordersByOrderType.SellOrdersByOrderId.OrdersByOrderId) == 0 {
+			continue
+		}
+
 		for _, order := range ordersByOrderType.SellOrdersByOrderId.OrdersByOrderId {
 			if order.OrderState != augur.OrderState_OPEN {
 				continue
@@ -117,7 +143,7 @@ func getBidAskForOutcomes(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrder
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
 				}).Errorf("Failed to parse order price from string")
-				return map[uint64]*markets.BidAsk{}, err
+				return map[uint64]*markets.LiquidityAtPrice{}, err
 			}
 			amount, err := strconv.ParseFloat(order.Amount, 64)
 			if err != nil {
@@ -126,28 +152,42 @@ func getBidAskForOutcomes(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrder
 					"orderAmount":          order.Amount,
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
-				}).Errorf("Failed to parse order price from string")
-				return map[uint64]*markets.BidAsk{}, err
+				}).Errorf("Failed to parse order amount from string")
+				return map[uint64]*markets.LiquidityAtPrice{}, err
 			}
-			if float64(bidasks[outcome].BestAsk) == 0.0 || float64(bidasks[outcome].BestAsk) > price {
-				bidasks[outcome].BestAsk = float32(price)
-				bidasks[outcome].BestAskQuantity = float32(amount)
+
+			// Accumulate all liquidity at the highest bid price
+			if float64(bestAsksByOutcome[outcome].Price) == price {
+				bestAsksByOutcome[outcome].Price += float32(price)
+				bestAsksByOutcome[outcome].Amount += float32(amount)
+			} else if float64(bestAsksByOutcome[outcome].Price) < price {
+				bestAsksByOutcome[outcome].Price = float32(price)
+				bestAsksByOutcome[outcome].Amount = float32(amount)
 			}
 		}
 	}
-	return bidasks, nil
+	return bestAsksByOutcome, nil
 }
 
-func getYesNoPredictions(m *Market, outcomes []*Outcome, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) ([]*markets.Prediction, error) {
-	bidasks, err := getBidAskForOutcomes(orders)
-	if err != nil {
-		logrus.WithError(err).Errorf("Failed to generate bid ask for outcomes of yesNo market")
-		return []*markets.Prediction{}, err
-	}
+func getYesNoPredictions(m *Market, outcomes []*Outcome) []*markets.Prediction {
+	// bestBids, err := getBestBids(orders)
+	// if err != nil {
+	// 	logrus.WithError(err).Errorf("Failed to generate asks for outcomes of yesNo market")
+	// 	return []*markets.Prediction{}, err
+	// }
+	// bestAsks, err := getBestAsk(orders)
+	// if err != nil {
+	// 	logrus.WithError(err).Errorf("Failed to generate asks for outcomes of yesNo market")
+	// 	return []*markets.Prediction{}, err
+	// }
 
 	no := outcomes[0]
 	yes := outcomes[1]
-	yesBidAsk := bidasks[1]
+
+	// If the market has no volume, do not return predictions
+	if no.Volume <= 0.0 && yes.Volume <= 0.0 {
+		return []*markets.Prediction{}
+	}
 
 	// Derive predicted percent
 	percent := yes.Price
@@ -157,18 +197,23 @@ func getYesNoPredictions(m *Market, outcomes []*Outcome, orders *augur.GetOrders
 
 	return []*markets.Prediction{
 		{
-			Name:    "yes",
-			Percent: float32(percent * 100),
-			BidAsk:  yesBidAsk,
+			Name:      "yes",
+			Percent:   float32(percent * 100),
+			OutcomeId: 1,
 		},
-	}, nil
+	}
 }
 
-func getCategoricalPredictions(m *Market, outcomes []*Outcome, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) ([]*markets.Prediction, error) {
-	bidAsksByOutcomes, err := getBidAskForOutcomes(orders)
-	if err != nil {
-		logrus.WithError(err).Errorf("Failed to generate bid ask for outcomes of categorical market")
-		return []*markets.Prediction{}, err
+func getCategoricalPredictions(m *Market, outcomes []*Outcome) []*markets.Prediction {
+	// If market has no volume, do not return predictions
+	hasVolume := false
+	for _, o := range outcomes {
+		if o.Volume > 0.0 {
+			hasVolume = true
+		}
+	}
+	if !hasVolume {
+		return []*markets.Prediction{}
 	}
 
 	// Sort the outcomes so that the prediction are sent to client
@@ -179,29 +224,27 @@ func getCategoricalPredictions(m *Market, outcomes []*Outcome, orders *augur.Get
 	predictions := []*markets.Prediction{}
 	for _, o := range outcomes {
 		predictions = append(predictions, &markets.Prediction{
-			Name:    o.Description,
-			Percent: float32(o.Price * 100),
-			BidAsk:  bidAsksByOutcomes[o.ID],
+			Name:      o.Description,
+			Percent:   float32(o.Price * 100),
+			OutcomeId: o.ID,
 		})
 	}
-	return predictions, nil
+	return predictions
 }
 
-func getScalarPredictions(m *Market, outcomes []*Outcome, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) ([]*markets.Prediction, error) {
+func getScalarPredictions(m *Market, outcomes []*Outcome) []*markets.Prediction {
 	if len(outcomes) != 2 {
 		logrus.WithField("outcomeInfos", outcomes).Errorf("`getScalarPredictions` was called without 2 `OutcomeInfo` arguments")
-		return []*markets.Prediction{}, nil
-	}
-
-	bidAskByOutcome, err := getBidAskForOutcomes(orders)
-	if err != nil {
-		logrus.WithError(err).Errorf("Failed to generate bid ask for outcomes of scalar market")
-		return []*markets.Prediction{}, err
+		return []*markets.Prediction{}
 	}
 
 	lower := outcomes[0]
 	upper := outcomes[1]
-	upperBidAsk := bidAskByOutcome[1]
+
+	// If the market has no volume, do not return predictions
+	if lower.Volume == 0.0 && upper.Volume == 0.0 {
+		return []*markets.Prediction{}
+	}
 
 	// Derive predicted scalar value
 	value := upper.Price
@@ -211,9 +254,9 @@ func getScalarPredictions(m *Market, outcomes []*Outcome, orders *augur.GetOrder
 
 	return []*markets.Prediction{
 		{
-			Name:   "",
-			Value:  float32(value),
-			BidAsk: upperBidAsk,
+			Name:      "",
+			Value:     float32(value),
+			OutcomeId: 1,
 		},
-	}, nil
+	}
 }
