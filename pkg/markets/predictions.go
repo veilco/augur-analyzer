@@ -157,9 +157,8 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 
 			// Accumulate all liquidity at the highest bid price
 			if float64(bestAsksByOutcome[outcome].Price) == price {
-				bestAsksByOutcome[outcome].Price += float32(price)
 				bestAsksByOutcome[outcome].Amount += float32(amount)
-			} else if float64(bestAsksByOutcome[outcome].Price) < price {
+			} else if float64(bestAsksByOutcome[outcome].Price) == 0 || float64(bestAsksByOutcome[outcome].Price) > price {
 				bestAsksByOutcome[outcome].Price = float32(price)
 				bestAsksByOutcome[outcome].Amount = float32(amount)
 			}
