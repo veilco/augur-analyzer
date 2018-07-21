@@ -16,8 +16,6 @@ import (
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 
 	"cloud.google.com/go/storage"
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/golang/protobuf/proto"
 	"github.com/sirupsen/logrus"
@@ -40,27 +38,26 @@ type Watcher struct {
 	Web3API    *ethclient.Client
 	AugurAPI   augur.MarketsApiClient
 	StorageAPI *storage.Client
-	Cache      *WatcherCache
 }
 
-// TODO: make this structure safe for concurrent operations
-type WatcherCache struct {
-	LastMarketsSummary []byte
+type MarketsData struct {
+	ByMarketID    map[string]*MarketData
+	ExchangeRates *ExchangeRates
 }
 
-type BlockHeaderSubscriber struct {
-	Subscription      ethereum.Subscription
-	BlockHeaderStream chan *types.Header
+type MarketData struct {
+	Info         *augur.MarketInfo
+	Orders       *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome
+	PriceHistory *augur.GetMarketPriceHistoryResponse
 }
 
-type marketProcessingData struct {
-	Info *augur.MarketInfo
+type ExchangeRates struct {
+	ETHUSD float64
+	BTCETH float64
 }
 
 func NewWatcher(pricingAPI pricing.PricingClient, web3API *ethclient.Client, augurAPI augur.MarketsApiClient, storageAPI *storage.Client) *Watcher {
-	return &Watcher{pricingAPI, web3API, augurAPI, storageAPI, &WatcherCache{
-		LastMarketsSummary: []byte{},
-	}}
+	return &Watcher{pricingAPI, web3API, augurAPI, storageAPI}
 }
 
 func (w *Watcher) Watch() {
@@ -106,92 +103,34 @@ func (w *Watcher) process() error {
 			continue
 		}
 
-		// Aggregate market data
-		marketAddresses := getMarketsResponse.MarketAddresses
-		infosByAddress := map[string]*augur.MarketInfo{}
-		chunkSize := 20
-		for x := 0; x < len(marketAddresses); x += chunkSize {
-			limit := x + chunkSize
-			if limit > len(marketAddresses) {
-				limit = len(marketAddresses)
-			}
-			addresses := marketAddresses[x:limit]
+		marketAddressesUnfiltered := getMarketsResponse.MarketAddresses
 
-			// Market Info
-			getMarketsInfoResponse, err := w.AugurAPI.GetMarketsInfo(context.TODO(), &augur.GetMarketsInfoRequest{
-				MarketAddresses: addresses,
-			})
-			if err != nil {
-				logrus.WithError(err).WithField("block", header.Number.String()).
-					Errorf("Call to augur-node `GetMarketsInfo` failed")
+		// Filter out blacklist here
+		marketAddresses := []string{}
+		for _, address := range marketAddressesUnfiltered {
+			if _, ok := blacklist[address]; !ok {
+				marketAddresses = append(marketAddresses, address)
 				continue
 			}
-			for _, mi := range getMarketsInfoResponse.MarketInfo {
-				infosByAddress[mi.Id] = mi
-			}
-
-			// Market orders
-			bulkGetOrdersResponse, err := w.AugurAPI.BulkGetOrders(context.TODO(), &augur.BulkGetOrdersRequest{
-				Requests: func() []*augur.GetOrdersRequest {
-					requests := []*augur.GetOrdersRequest{}
-					for _, address := range addresses {
-						requests = append(requests, &augur.GetOrdersRequest{
-							Universe:   viper.GetString(env.AugurRootUniverse),
-							MarketId:   address,
-							OrderState: augur.OrderState_OPEN,
-						})
-					}
-					return requests
-				}(),
-			})
-			if err != nil {
-				logrus.WithError(err).WithField("block", header.Number.String()).
-					Errorf("Call to augur-node `BulkGetOrders` failed")
-				continue
-			}
-
-			// Market price history
-			bulkGetPriceHistoryResponse, err := w.AugurAPI.BulkGetMarketPriceHistory(context.TODO(), &augur.BulkGetMarketPriceHistoryRequest{
-				Requests: func() []*augur.GetMarketPriceHistoryRequest {
-					requests := []*augur.GetMarketPriceHistoryRequest{}
-					for _, address := range addresses {
-						requests = append(requests, &augur.GetMarketPriceHistoryRequest{
-							MarketId: address,
-						})
-					}
-					return requests
-				}(),
-			})
-
+			logrus.WithFields(logrus.Fields{
+				"address": address,
+			}).Infof("Skipping blacklisted market")
 		}
 
-		// Query exchange rates
-		ethusd, err := w.PricingAPI.ETHtoUSD()
+		// Accumulate all the market data from the augur index
+		marketsData, err := w.getMarketsData(context.TODO(), marketAddresses)
 		if err != nil {
-			logrus.WithError(err).Errorf("Failed to get ETH USD exchange rate")
-			continue
-		}
-		btceth, err := w.PricingAPI.BTCtoETH()
-		if err != nil {
-			logrus.WithError(err).Errorf("Failed to get BTC ETH exchange rate")
+			logrus.WithError(err).Errorf("Failed to gather market data")
 			continue
 		}
 
 		m := []*markets.Market{}
-		for _, info := range infosByAddress {
-			if _, ok := blacklist[info.Id]; ok {
-				logrus.WithFields(logrus.Fields{
-					"id":          info.Id,
-					"description": info.Description,
-				}).Infof("Skipping blacklisted market")
-				continue
-			}
-
-			market, err := translateMarketInfoToMarket(info, ethusd, btceth)
+		for _, md := range marketsData.ByMarketID {
+			market, err := translateMarketInfoToMarket(md, marketsData.ExchangeRates.ETHUSD, marketsData.ExchangeRates.BTCETH)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{
 					"block":         header.Number.String(),
-					"marketAddress": info.Id,
+					"marketAddress": md.Info.Id,
 				}).WithError(err).Errorf("Failed to translate a market info into a market")
 
 				// Better to have a subset of the markets
@@ -201,10 +140,12 @@ func (w *Watcher) process() error {
 			}
 			m = append(m, market)
 		}
+
 		// Order the markets from biggest to smallest
 		sort.Slice(m, func(i, j int) bool {
 			return m[i].MarketCapitalization.Eth > m[j].MarketCapitalization.Eth
 		})
+
 		summary := &markets.MarketsSummary{
 			Block:                      header.Number.Uint64(),
 			TotalMarkets:               uint64(len(m)),
@@ -215,9 +156,10 @@ func (w *Watcher) process() error {
 
 		snapshot := &markets.MarketsSnapshot{
 			MarketsSummary: summary,
-			MarketInfos:    mapMarketInfos(infosByAddress),
+			MarketInfos:    mapMarketInfos(marketsData),
 		}
 
+		// Upload to Google Cloud
 		serializedSummary, err := proto.Marshal(summary)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
@@ -225,12 +167,6 @@ func (w *Watcher) process() error {
 			}).WithError(err).Errorf("Failed to protobuf serialize market summary")
 			continue
 		}
-
-		w.Cache.LastMarketsSummary = serializedSummary
-
-		logrus.Infof("Successfully serialized a market summary for block #%s", header.Number.String())
-
-		// Upload to Google Cloud
 		if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
 			Bucket:     viper.GetString(env.GCloudStorageBucket),
 			ObjectName: MARKETS_SUMMARIES_OBJECT,
@@ -246,8 +182,10 @@ func (w *Watcher) process() error {
 			continue
 		}
 
+		logrus.Infof("Successfully uploaded market summary for block #%s", header.Number.String())
 		lastProcessedBlockNumber = header.Number
 
+		// Upload snapshot to cloud storage for data science
 		go func() {
 			serializedSnapshot, err := proto.Marshal(snapshot)
 			if err != nil {
@@ -256,7 +194,6 @@ func (w *Watcher) process() error {
 				}).WithError(fmt.Errorf("Failed to protobuf serialize markets snapshot"))
 				return
 			}
-
 			if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
 				Bucket:     viper.GetString(env.GCloudStorageBucket),
 				ObjectName: MARKETS_SNAPSHOT_OBJECT,
@@ -278,19 +215,6 @@ func (w *Watcher) process() error {
 	}
 }
 
-func (w *Watcher) getNewBlockHeadersSubscription() (*BlockHeaderSubscriber, error) {
-	blockHeaderStream := make(chan *types.Header)
-	subscription, err := w.Web3API.SubscribeNewHead(context.TODO(), blockHeaderStream)
-	if err != nil {
-		return nil, err
-	}
-	return &BlockHeaderSubscriber{
-		Subscription:      subscription,
-		BlockHeaderStream: blockHeaderStream,
-	}, nil
-
-}
-
 func deriveTotalMarketsCapitalization(ms []*markets.Market) *markets.Price {
 	price := &markets.Price{}
 	for _, m := range ms {
@@ -301,51 +225,68 @@ func deriveTotalMarketsCapitalization(ms []*markets.Market) *markets.Price {
 	return price
 }
 
-func translateMarketInfoToMarket(info *augur.MarketInfo, ethusd, btceth float64) (*markets.Market, error) {
-	if info == nil {
+func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*markets.Market, error) {
+	if md.Info == nil {
 		return nil, fmt.Errorf("`translateMarketInfoToMarket` required a non nil MarketInfo as an argument")
 	}
 
-	marketCapitalization, err := translateMarketInfoToMarketCapitalization(info, ethusd, btceth)
+	marketCapitalization, err := translateMarketInfoToMarketCapitalization(md.Info, ethusd, btceth)
 	if err != nil {
 		logrus.WithError(err).
-			WithField("marketInfo", *info).
+			WithField("marketInfo", *md.Info).
 			Errorf("Failed to translate market info into market capitalization")
 		return nil, err
 	}
-	predictions, err := getPredictions(info)
+	predictions, err := getPredictions(md.Info, md.Orders)
 	if err != nil {
 		logrus.WithError(err).
-			WithField("marketInfo", *info).
+			WithField("marketInfo", md.Info).
 			Errorf("Failed to translate market info into predictions")
 		return nil, err
 	}
-	marketType, err := getMarketType(info)
+	marketType, err := getMarketType(md.Info)
 	if err != nil {
 		logrus.WithError(err).
-			WithField("marketInfo", *info).
+			WithField("marketInfo", *md.Info).
 			Errorf("Failed to get market type")
 		return nil, err
 	}
+	bestBids, err := getBestBids(md.Orders)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get best bids")
+		return nil, err
+	}
+	bestAsks, err := getBestAsks(md.Orders)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get best asks")
+		return nil, err
+	}
 
-	_, featured := featuredlist[info.Id]
+	_, featured := featuredlist[md.Info.Id]
 
 	return &markets.Market{
-		Id:                   info.Id,
+		Id:                   md.Info.Id,
 		MarketType:           marketType,
-		Name:                 info.Description,
+		Name:                 md.Info.Description,
 		CommentCount:         0,
 		MarketCapitalization: marketCapitalization,
-		EndDate:              info.EndTime,
+		EndDate:              md.Info.EndTime,
 		Predictions:          predictions,
-		Author:               info.Author,
-		CreationTime:         info.CreationTime,
-		CreationBlock:        info.CreationBlock,
-		ResolutionSource:     info.ResolutionSource,
-		Details:              info.Details,
-		Tags:                 info.Tags,
+		Author:               md.Info.Author,
+		CreationTime:         md.Info.CreationTime,
+		CreationBlock:        md.Info.CreationBlock,
+		ResolutionSource:     md.Info.ResolutionSource,
+		Details:              md.Info.Details,
+		Tags:                 md.Info.Tags,
 		IsFeatured:           featured,
-		Category:             info.Category,
+		Category:             md.Info.Category,
+		LastTradeTime:        getLastTradeTimeFromPriceHistory(md.PriceHistory.MarketPriceHistory),
+		BestBids:             bestBids,
+		BestAsks:             bestAsks,
 	}, nil
 
 }
@@ -383,7 +324,7 @@ func getMarketType(info *augur.MarketInfo) (markets.MarketType, error) {
 	return 0, fmt.Errorf("Failed to parse market type: %s", info.MarketType)
 }
 
-func getPredictions(info *augur.MarketInfo) ([]*markets.Prediction, error) {
+func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) ([]*markets.Prediction, error) {
 	if info == nil {
 		return []*markets.Prediction{}, fmt.Errorf("Non nil MarketInfo required")
 	}
@@ -415,9 +356,10 @@ func getPredictions(info *augur.MarketInfo) ([]*markets.Prediction, error) {
 	return predictions, nil
 }
 
-func mapMarketInfos(infosByAddress map[string]*augur.MarketInfo) []*markets.MarketInfo {
+func mapMarketInfos(marketsData *MarketsData) []*markets.MarketInfo {
 	mis := []*markets.MarketInfo{}
-	for id, info := range infosByAddress {
+	for id, md := range marketsData.ByMarketID {
+		info := md.Info
 		if _, ok := blacklist[id]; ok {
 			continue
 		}
@@ -512,4 +454,111 @@ func mapMarketInfos(infosByAddress map[string]*augur.MarketInfo) []*markets.Mark
 		mis = append(mis, m)
 	}
 	return mis
+}
+
+func (w *Watcher) getMarketsData(ctx context.Context, marketAddresses []string) (*MarketsData, error) {
+	marketDataByID := map[string]*MarketData{}
+	chunks := 10
+	for x := 0; x < len(marketAddresses); x += chunks {
+		limit := x + chunks
+		if limit > len(marketAddresses) {
+			limit = len(marketAddresses)
+		}
+		addresses := marketAddresses[x:limit]
+
+		// Market Info
+		getMarketsInfoResponse, err := w.AugurAPI.GetMarketsInfo(ctx, &augur.GetMarketsInfoRequest{
+			MarketAddresses: addresses,
+		})
+		if err != nil {
+			logrus.WithError(err).Errorf("Call to augur-node `GetMarketsInfo` failed")
+			return nil, err
+		}
+		for _, mi := range getMarketsInfoResponse.MarketInfo {
+			marketDataByID[mi.Id] = &MarketData{} // Initialize
+			marketDataByID[mi.Id].Info = mi
+		}
+
+		// Market Orders
+		bulkGetOrdersResponse, err := w.AugurAPI.BulkGetOrders(ctx, &augur.BulkGetOrdersRequest{
+			Requests: func() []*augur.GetOrdersRequest {
+				requests := []*augur.GetOrdersRequest{}
+				for _, address := range addresses {
+					requests = append(requests, &augur.GetOrdersRequest{
+						Universe:   viper.GetString(env.AugurRootUniverse),
+						MarketId:   address,
+						OrderState: augur.OrderState_OPEN,
+					})
+				}
+				return requests
+			}(),
+		})
+		if err != nil {
+			logrus.WithError(err).Errorf("Call to augur-node `BulkGetOrders` failed")
+			return nil, err
+		}
+		// Assume each response corresponds to one market
+		// since that is how the request is structured
+		for _, response := range bulkGetOrdersResponse.Responses {
+			for marketAddress, orders := range response.Wrapper.OrdersByOrderIdByOrderTypeByOutcomeByMarketId {
+				if marketDataByID[marketAddress].Orders != nil {
+					logrus.WithField("marketAddress", marketAddress).Warn("Received multiple get orders responses for one market")
+				}
+				marketDataByID[marketAddress].Orders = orders
+			}
+		}
+
+		// Market price history
+		bulkGetPriceHistoryResponse, err := w.AugurAPI.BulkGetMarketPriceHistory(context.TODO(), &augur.BulkGetMarketPriceHistoryRequest{
+			Requests: func() []*augur.GetMarketPriceHistoryRequest {
+				requests := []*augur.GetMarketPriceHistoryRequest{}
+				for _, address := range addresses {
+					requests = append(requests, &augur.GetMarketPriceHistoryRequest{
+						MarketId: address,
+					})
+				}
+				return requests
+			}(),
+		})
+		if err != nil {
+			logrus.WithError(err).Errorf("Call to augur-node `BulkGetMarketPriceHistory` failed")
+			return nil, err
+		}
+		for marketAddress, priceHistory := range bulkGetPriceHistoryResponse.ResponsesByMarketId {
+			marketDataByID[marketAddress].PriceHistory = priceHistory
+		}
+
+	}
+
+	// Query exchange rates
+	ethusd, err := w.PricingAPI.ETHtoUSD()
+	if err != nil {
+		logrus.WithError(err).Errorf("Failed to get ETH USD exchange rate")
+		return nil, err
+	}
+	btceth, err := w.PricingAPI.BTCtoETH()
+	if err != nil {
+		logrus.WithError(err).Errorf("Failed to get BTC ETH exchange rate")
+		return nil, err
+	}
+
+	return &MarketsData{
+		ByMarketID: marketDataByID,
+		ExchangeRates: &ExchangeRates{
+			ETHUSD: ethusd,
+			BTCETH: btceth,
+		},
+	}, nil
+}
+
+func getLastTradeTimeFromPriceHistory(priceHistory *augur.MarketPriceHistory) uint64 {
+	mostRecent := uint64(0)
+	for _, timestampedPrices := range priceHistory.TimestampedPriceAmountByOutcome {
+		for _, timestampedPrice := range timestampedPrices.TimestampedPriceAmounts {
+			if timestampedPrice.Timestamp > mostRecent {
+				mostRecent = timestampedPrice.Timestamp
+			}
+		}
+	}
+	return mostRecent
 }
