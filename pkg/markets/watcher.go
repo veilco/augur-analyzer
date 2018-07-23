@@ -10,21 +10,14 @@ import (
 	"time"
 
 	"github.com/stateshape/augur-analyzer/pkg/env"
-	"github.com/stateshape/augur-analyzer/pkg/gcloud"
 	"github.com/stateshape/augur-analyzer/pkg/pricing"
 	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 
 	"cloud.google.com/go/storage"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/golang/protobuf/proto"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-)
-
-const (
-	MARKETS_SUMMARIES_OBJECT = "markets.pb"
-	MARKETS_SNAPSHOT_OBJECT  = "snapshot"
 )
 
 const (
@@ -37,7 +30,7 @@ type Watcher struct {
 	PricingAPI pricing.PricingClient
 	Web3API    *ethclient.Client
 	AugurAPI   augur.MarketsApiClient
-	StorageAPI *storage.Client
+	Writer     *Writer
 }
 
 type MarketsData struct {
@@ -57,7 +50,10 @@ type ExchangeRates struct {
 }
 
 func NewWatcher(pricingAPI pricing.PricingClient, web3API *ethclient.Client, augurAPI augur.MarketsApiClient, storageAPI *storage.Client) *Watcher {
-	return &Watcher{pricingAPI, web3API, augurAPI, storageAPI}
+	return &Watcher{pricingAPI, web3API, augurAPI, &Writer{
+		Bucket:           viper.GetString(env.GCloudStorageBucket),
+		GCloudStorageAPI: storageAPI,
+	}}
 }
 
 func (w *Watcher) Watch() {
@@ -153,31 +149,7 @@ func (w *Watcher) process() error {
 			Markets:                    m,
 			GenerationTime:             uint64(time.Now().Unix()),
 		}
-
-		snapshot := &markets.MarketsSnapshot{
-			MarketsSummary: summary,
-			MarketInfos:    mapMarketInfos(marketsData),
-		}
-
-		// Upload to Google Cloud
-		serializedSummary, err := proto.Marshal(summary)
-		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"blockNumber": header.Number.String(),
-			}).WithError(err).Errorf("Failed to protobuf serialize market summary")
-			continue
-		}
-		if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
-			Bucket:     viper.GetString(env.GCloudStorageBucket),
-			ObjectName: MARKETS_SUMMARIES_OBJECT,
-			Content:    serializedSummary,
-		}, func(wrtr *storage.Writer) {
-			wrtr.ContentType = "application/octet-stream"
-			wrtr.CacheControl = "public, max-age=15"
-			wrtr.ACL = []storage.ACLRule{
-				{storage.AllUsers, storage.RoleReader},
-			}
-		}); err != nil {
+		if err := w.Writer.WriteMarketsSummary(summary); err != nil {
 			logrus.WithError(err).Errorf("Failed to write markets summary to GCloud storage")
 			continue
 		}
@@ -185,30 +157,16 @@ func (w *Watcher) process() error {
 		logrus.Infof("Successfully uploaded market summary for block #%s", header.Number.String())
 		lastProcessedBlockNumber = header.Number
 
-		// Upload snapshot to cloud storage for data science
+		// Write snapshot async since it is not mission critical
 		go func() {
-			serializedSnapshot, err := proto.Marshal(snapshot)
-			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"blockNumber": header.Number.String(),
-				}).WithError(fmt.Errorf("Failed to protobuf serialize markets snapshot"))
-				return
+			snapshot := &markets.MarketsSnapshot{
+				MarketsSummary: summary,
+				MarketInfos:    mapMarketInfos(marketsData),
 			}
-			if err := gcloud.WriteObject(w.StorageAPI, gcloud.WriteObjectParameters{
-				Bucket:     viper.GetString(env.GCloudStorageBucket),
-				ObjectName: MARKETS_SNAPSHOT_OBJECT,
-				Content:    serializedSnapshot,
-			}, func(wrtr *storage.Writer) {
-				wrtr.ContentType = "application/octet-stream"
-				wrtr.CacheControl = "public, max-age=15"
-				wrtr.ACL = []storage.ACLRule{
-					{storage.AllUsers, storage.RoleReader},
-				}
-			}); err != nil {
+			if err := w.Writer.WriteMarketsSnapshot(snapshot); err != nil {
 				logrus.WithError(err).Errorf("Failed to write markets snapshot to GCloud storage")
 				return
 			}
-			logrus.WithField("blockNumber", header.Number.String()).Infof("Uploaded snapshot file")
 		}()
 
 		logrus.WithField("blockNumber", header.Number.String()).Infof("Finished processing block")
