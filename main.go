@@ -86,6 +86,7 @@ func main() {
 	}
 	augurAPI := augur.NewMarketsApiClient(augurAPIConn)
 
+	// Watch for new market information
 	watcher := markets.NewWatcher(pricingAPI, web3API, augurAPI, gcloudStorageAPI)
 	go watcher.Watch()
 
