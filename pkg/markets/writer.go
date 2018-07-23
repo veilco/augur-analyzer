@@ -1,0 +1,97 @@
+package markets
+
+import (
+	"bytes"
+	"compress/gzip"
+
+	"github.com/stateshape/augur-analyzer/pkg/gcloud"
+	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
+
+	"cloud.google.com/go/storage"
+	"github.com/golang/protobuf/proto"
+)
+
+const (
+	MarketsSummariesObjectNameV1 = "markets.pb"
+	MarketsSummariesObjectNameV2 = "markets"
+
+	MarketsSnapshotObjectNameV1 = "snapshot"
+)
+
+type Writer struct {
+	Bucket           string
+	GCloudStorageAPI *storage.Client
+}
+
+func (w *Writer) WriteMarketsSummary(summary *markets.MarketsSummary) error {
+	protobuf, err := proto.Marshal(summary)
+	if err != nil {
+		return err
+	}
+
+	// Attempt to write all objects, accumulate errors
+
+	// V1
+	if err := gcloud.WriteObject(w.GCloudStorageAPI, gcloud.WriteObjectParameters{
+		Bucket:     w.Bucket,
+		ObjectName: MarketsSummariesObjectNameV1,
+		Content:    protobuf,
+	}, func(wrtr *storage.Writer) {
+		wrtr.ContentType = "application/octet-stream"
+		wrtr.CacheControl = "public, max-age=15"
+		wrtr.ACL = []storage.ACLRule{
+			{storage.AllUsers, storage.RoleReader},
+		}
+	}); err != nil {
+		return err
+	}
+
+	// V2
+	gzipped := bytes.NewBuffer(nil)
+	gzipWrtr := gzip.NewWriter(gzipped)
+	if _, err := gzipWrtr.Write(protobuf); err != nil {
+		return err
+	}
+	if err := gzipWrtr.Close(); err != nil {
+		return err
+	}
+	if err := gcloud.WriteObject(w.GCloudStorageAPI, gcloud.WriteObjectParameters{
+		Bucket:     w.Bucket,
+		ObjectName: MarketsSummariesObjectNameV2,
+		Content:    gzipped.Bytes(),
+	}, func(wrtr *storage.Writer) {
+		wrtr.ContentType = "application/octet-stream"
+		wrtr.CacheControl = "public, max-age=15"
+		wrtr.ACL = []storage.ACLRule{
+			{storage.AllUsers, storage.RoleReader},
+		}
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (w *Writer) WriteMarketsSnapshot(snapshot *markets.MarketsSnapshot) error {
+	protobuf, err := proto.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+
+	if err := gcloud.WriteObject(w.GCloudStorageAPI, gcloud.WriteObjectParameters{
+		Bucket:     w.Bucket,
+		ObjectName: MarketsSnapshotObjectNameV1,
+		Content:    protobuf,
+	}, func(wrtr *storage.Writer) {
+		wrtr.ContentType = "application/octet-stream"
+		wrtr.CacheControl = "public, max-age=15"
+		wrtr.ACL = []storage.ACLRule{
+			{storage.AllUsers, storage.RoleReader},
+		}
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w *Writer) WriteMarketDetail() {}
