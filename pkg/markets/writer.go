@@ -3,6 +3,7 @@ package markets
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 
 	"github.com/stateshape/augur-analyzer/pkg/gcloud"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
@@ -30,6 +31,7 @@ func (w *Writer) WriteMarketsSummary(summary *markets.MarketsSummary) error {
 	}
 
 	// Attempt to write all objects, accumulate errors
+	errs := []error{}
 
 	// V1
 	if err := gcloud.WriteObject(w.GCloudStorageAPI, gcloud.WriteObjectParameters{
@@ -43,7 +45,7 @@ func (w *Writer) WriteMarketsSummary(summary *markets.MarketsSummary) error {
 			{storage.AllUsers, storage.RoleReader},
 		}
 	}); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
 	// V2
@@ -62,14 +64,24 @@ func (w *Writer) WriteMarketsSummary(summary *markets.MarketsSummary) error {
 	}, func(wrtr *storage.Writer) {
 		wrtr.ContentType = "application/octet-stream"
 		wrtr.CacheControl = "public, max-age=15"
+		wrtr.ContentEncoding = "gzip"
 		wrtr.ACL = []storage.ACLRule{
 			{storage.AllUsers, storage.RoleReader},
 		}
 	}); err != nil {
-		return err
+		errs = append(errs, err)
 	}
 
-	return nil
+	if len(errs) == 0 {
+		return nil
+	}
+
+	// Aggregate errors and return
+	resp := "Failed to upload markets summary: "
+	for i, err := range errs {
+		resp = fmt.Sprintf("%s || Error #%d: %s", resp, i, err.Error())
+	}
+	return fmt.Errorf(resp)
 }
 
 func (w *Writer) WriteMarketsSnapshot(snapshot *markets.MarketsSnapshot) error {
