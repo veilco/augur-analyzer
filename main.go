@@ -33,6 +33,7 @@ func environment() {
 	viper.SetDefault(env.GoogleApplicationCredentials, "")
 	viper.SetDefault(env.GCloudProjectID, "")
 	viper.SetDefault(env.GCloudStorageBucket, "")
+	viper.SetDefault(env.DebugMarkets, "")
 	viper.AutomaticEnv()
 
 	required := []string{

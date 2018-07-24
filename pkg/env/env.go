@@ -13,4 +13,5 @@ const (
 	GoogleApplicationCredentials = "GOOGLE_APPLICATION_CREDENTIALS"
 	GCloudProjectID              = "GCLOUD_PROJECT_ID"
 	GCloudStorageBucket          = "GCLOUD_STORAGE_BUCKET"
+	DebugMarkets                 = "DEBUG_MARKETS"
 )

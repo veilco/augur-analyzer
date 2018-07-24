@@ -174,12 +174,18 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 }
 
 func getYesNoPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) []*markets.Prediction {
+	if len(outcomes) != 2 {
+		logrus.WithField("outcomeInfos", outcomes).Errorf("`getYesNoPredictions` was called without 2 `OutcomeInfo` arguments")
+		return []*markets.Prediction{}
+	}
+
 	// If the market has no volume and no liquidity, do not return predictions
 	if m.Volume <= 0.0 && len(bestBids) == 0 && len(bestAsks) == 0 {
 		return []*markets.Prediction{}
 	}
 
-	if m.Volume > 0.0 { // Derive predicted percent using prices
+	// Derive predicted percent using prices if there is volume
+	if m.Volume > 0.0 {
 		no := outcomes[0]
 		yes := outcomes[1]
 
@@ -228,7 +234,7 @@ func getYesNoPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map[
 	return []*markets.Prediction{
 		{
 			Name:      "yes",
-			Percent:   (100 * price),
+			Percent:   (price * 100),
 			OutcomeId: 1,
 		},
 	}
@@ -317,7 +323,8 @@ func getScalarPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map
 		return []*markets.Prediction{}
 	}
 
-	if m.Volume > 0 { // Derive predicted scalar value using prices
+	// Derive predicted scalar value using prices if there is volume
+	if m.Volume > 0 {
 		value := upper.Price
 		if upper.Volume <= 0.0 && lower.Volume > 0.0 {
 			value = m.MaxPrice + m.MinPrice - lower.Price
