@@ -195,15 +195,42 @@ func getYesNoPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map[
 				OutcomeId: 1,
 			},
 		}
-	} else { // Derive predicted percent using liquidity
-		// If 0.0 no liquidity, use the best price for yes
-		// as the predicted percent
+	}
 
-		// If 0.0 yes liquidity, use 1 - the best price for no
-		// as the predicted percent
+	// Derive predicted percent using liquidity
+	bestNoBid, noBidExists := bestBids[0]
+	bestNoAsk, noAskExists := bestAsks[0]
+	bestYesBid, yesBidExists := bestBids[1]
+	bestYesAsk, yesAskExists := bestAsks[1]
 
-		// If both yes and no liquidity, use the weighted avg of the
-		// best yes price and the best no price
+	var price float32 = 0.0
+	if yesBidExists && yesAskExists {
+		// If both YES bids and YES asks, use the weighted avg of the
+		// best YES bid and the best YES ask
+		price = ((bestYesBid.Price * bestYesBid.Amount) + (bestYesAsk.Price * bestYesAsk.Amount)) / (bestYesBid.Amount + bestYesAsk.Amount)
+	} else if yesBidExists && !yesAskExists {
+		// If YES bids and no YES asks, use the best YES bid
+		price = bestYesBid.Price
+	} else if !yesBidExists && yesAskExists {
+		// If no YES bids and YES asks, use the best YES ask
+		price = bestYesAsk.Price
+	} else if noBidExists && noAskExists {
+		// If NO bids and NO asks, use 1 - the weighted avg of the
+		// best NO bid and the best NO ask
+		price = 1 - ((bestNoBid.Price*bestNoBid.Amount)+(bestNoAsk.Price*bestNoAsk.Amount))/(bestNoBid.Amount+bestNoAsk.Amount)
+	} else if noBidExists && !noAskExists {
+		// If NO bids and no NO asks, use 1 - best NO bid
+		price = 1 - bestNoBid.Price
+	} else if !noBidExists && noAskExists {
+		// IF no NO bids and NO asks, use 1 - best NO ask
+		price = 1 - bestNoAsk.Price
+	}
+	return []*markets.Prediction{
+		{
+			Name:      "yes",
+			Percent:   (100 * price),
+			OutcomeId: 1,
+		},
 	}
 }
 
@@ -228,13 +255,52 @@ func getCategoricalPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsk
 			})
 		}
 		return predictions
-	} else {
-		// Determine bid price for each outcome
-		// If no bid price, derive bid price from lowest ask price
-		sort.Slice(outcomes, func(i, j) bool {
-			// Sort by bid price
+	}
+
+	// Derive prediction using liquidity
+	liquidityPricedOutcomes := []*Outcome{}
+	for _, o := range outcomes {
+		liquidityPricedOutcomes = append(liquidityPricedOutcomes, &Outcome{
+			ID:          o.ID,
+			Description: o.Description,
+			Volume:      o.Volume,
+			Price: func() float64 {
+				bestBid, bestBidExists := bestBids[o.ID]
+				bestAsk, bestAskExists := bestAsks[o.ID]
+
+				// If the outcome has no bids and no asks, the approximate prediction is 0
+				if !bestBidExists && !bestAskExists {
+					return 0.0
+				}
+				// If the outcome has bids and asks, use the weighted avg of
+				// the best bid and the best ask
+				if bestBidExists && bestAskExists {
+					return float64(((bestBid.Price * bestBid.Amount) + (bestAsk.Price * bestAsk.Amount)) /
+						(bestBid.Amount + bestAsk.Amount))
+				}
+				// If the outcome has bids and no asks, use the best bid
+				if bestBidExists {
+					return float64(bestBid.Price)
+				}
+				// If the outcome has no bids and has asks, use the best ask
+				return float64(bestAsk.Price)
+			}(),
 		})
 	}
+
+	// Sort outcomes by best approximate prediction and generate Prediction types
+	sort.Slice(liquidityPricedOutcomes, func(i, j int) bool {
+		return outcomes[i].Price > outcomes[j].Price
+	})
+	predictions := []*markets.Prediction{}
+	for _, o := range outcomes {
+		predictions = append(predictions, &markets.Prediction{
+			Name:      o.Description,
+			Percent:   float32(o.Price * 100),
+			OutcomeId: o.ID,
+		})
+	}
+	return predictions
 }
 
 func getScalarPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) []*markets.Prediction {
@@ -264,7 +330,44 @@ func getScalarPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map
 				OutcomeId: 1,
 			},
 		}
-	} else { // Derive predicted scalar value using liquidity
+	}
 
+	// Derive predicted scalar value using liquidity
+	bestLowerBid, lowerBidExists := bestBids[0]
+	bestLowerAsk, lowerAskExists := bestAsks[0]
+	bestUpperBid, upperBidExists := bestBids[1]
+	bestUpperAsk, upperAskExists := bestAsks[1]
+
+	var value float32 = 0.0
+	if upperBidExists && upperAskExists {
+		// If UPPER bids and UPPER asks, use the weighted average
+		// of the best UPPER bid and the best UPPER ask
+		value = ((bestUpperBid.Price * bestUpperAsk.Amount) + (bestUpperAsk.Price * bestUpperAsk.Amount)) / (bestUpperBid.Amount + bestUpperAsk.Amount)
+	} else if upperBidExists && !upperAskExists {
+		// If UPPER bids and no UPPER asks, use the best UPPER bid
+		value = bestUpperBid.Price
+	} else if !upperBidExists && upperAskExists {
+		// If no UPPER bids and UPPER asks, use the best UPPER ask
+		value = bestUpperAsk.Price
+	} else if lowerBidExists && lowerAskExists {
+		// If LOWER bids and LOWER asks, use
+		// Market.MaxPrice + Market.MinPrice - (weighted avg of best LOWER bid and best LOWER ask)
+		value = float32(m.MaxPrice+m.MinPrice) - ((bestLowerBid.Price*bestLowerBid.Amount)+(bestLowerAsk.Price*bestLowerAsk.Price*bestLowerAsk.Amount))/(bestLowerBid.Amount+bestLowerAsk.Amount)
+	} else if lowerBidExists && !lowerAskExists {
+		// If LOWER bids and no LOWER asks, use
+		// Market.MaxPrice + Market.MinPrice - (best LOWER bid)
+		value = float32(m.MaxPrice+m.MinPrice) - bestLowerBid.Price
+	} else if !lowerBidExists && lowerAskExists {
+		// If no LOWER bids and LOWER asks, use
+		// Market.MaxPrice + Market.MinPrice - (best LOWER ask)
+		value = float32(m.MaxPrice+m.MinPrice) - bestLowerAsk.Price
+	}
+
+	return []*markets.Prediction{
+		{
+			Name:      "",
+			Value:     float32(value),
+			OutcomeId: 1,
+		},
 	}
 }
