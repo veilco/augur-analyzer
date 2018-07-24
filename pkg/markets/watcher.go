@@ -157,6 +157,8 @@ func (w *Watcher) process() error {
 		logrus.Infof("Successfully uploaded market summary for block #%s", header.Number.String())
 		lastProcessedBlockNumber = header.Number
 
+		go DebugMarkets(marketsData, m)
+
 		// Write snapshot async since it is not mission critical
 		go func() {
 			snapshot := &markets.MarketsSnapshot{
@@ -195,20 +197,6 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 			Errorf("Failed to translate market info into market capitalization")
 		return nil, err
 	}
-	predictions, err := getPredictions(md.Info, md.Orders)
-	if err != nil {
-		logrus.WithError(err).
-			WithField("marketInfo", md.Info).
-			Errorf("Failed to translate market info into predictions")
-		return nil, err
-	}
-	marketType, err := getMarketType(md.Info)
-	if err != nil {
-		logrus.WithError(err).
-			WithField("marketInfo", *md.Info).
-			Errorf("Failed to get market type")
-		return nil, err
-	}
 	bestBids, err := getBestBids(md.Orders)
 	if err != nil {
 		logrus.WithError(err).
@@ -221,6 +209,20 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		logrus.WithError(err).
 			WithField("marketInfo", *md.Info).
 			Errorf("Failed to get best asks")
+		return nil, err
+	}
+	predictions, err := getPredictions(md.Info, md.Orders, bestBids, bestAsks)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", md.Info).
+			Errorf("Failed to translate market info into predictions")
+		return nil, err
+	}
+	marketType, err := getMarketType(md.Info)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get market type")
 		return nil, err
 	}
 
@@ -282,7 +284,7 @@ func getMarketType(info *augur.MarketInfo) (markets.MarketType, error) {
 	return 0, fmt.Errorf("Failed to parse market type: %s", info.MarketType)
 }
 
-func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) ([]*markets.Prediction, error) {
+func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) ([]*markets.Prediction, error) {
 	if info == nil {
 		return []*markets.Prediction{}, fmt.Errorf("Non nil MarketInfo required")
 	}
@@ -305,11 +307,11 @@ func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_Orde
 	predictions := []*markets.Prediction{}
 	switch info.MarketType {
 	case MarketTypeYesNo:
-		predictions = append(predictions, getYesNoPredictions(m, os)...)
+		predictions = append(predictions, getYesNoPredictions(m, os, bestBids, bestAsks)...)
 	case MarketTypeCategorical:
-		predictions = append(predictions, getCategoricalPredictions(m, os)...)
+		predictions = append(predictions, getCategoricalPredictions(m, os, bestBids, bestAsks)...)
 	case MarketTypeScalar:
-		predictions = append(predictions, getScalarPredictions(m, os)...)
+		predictions = append(predictions, getScalarPredictions(m, os, bestBids, bestAsks)...)
 	}
 	return predictions, nil
 }
