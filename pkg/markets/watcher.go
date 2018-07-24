@@ -120,32 +120,6 @@ func (w *Watcher) process() error {
 			continue
 		}
 
-		// interestedMarketID := "0xd9cf030f0ff46c911e1f5b41e350c9d56d342e18"
-		// if data, ok := marketsData.ByMarketID[interestedMarketID]; ok {
-		// 	if data.Orders == nil {
-		// 		logrus.Infof("Orders for market %s are nil", interestedMarketID)
-
-		// 	} else {
-		// 		if len(data.Orders.OrdersByOrderIdByOrderTypeByOutcome) == 0 {
-		// 			logrus.Infof("OrdersByOrderIsByOrderTypeByOutcome for market %s is nil", interestedMarketID)
-		// 		} else {
-		// 			for _, byOrderType := range data.Orders.OrdersByOrderIdByOrderTypeByOutcome {
-		// 				if byOrderType.BuyOrdersByOrderId == nil {
-		// 					logrus.Infof("BuyOrdersByOrderId for market %s is nil", interestedMarketID)
-		// 				} else {
-		// 					if len(byOrderType.BuyOrdersByOrderId.OrdersByOrderId) == 0 {
-		// 						logrus.Infof("BuyOrdersByOrderId.OrdersByOrderId for market %s is empty", interestedMarketID)
-		// 					} else {
-		// 						for _, order := range byOrderType.BuyOrdersByOrderId.OrdersByOrderId {
-		// 							logrus.WithField("order", *order).Infof("Buy order for market %s found", interestedMarketID)
-		// 						}
-		// 					}
-		// 				}
-		// 			}
-		// 		}
-		// 	}
-		// }
-
 		m := []*markets.Market{}
 		for _, md := range marketsData.ByMarketID {
 			market, err := translateMarketInfoToMarket(md, marketsData.ExchangeRates.ETHUSD, marketsData.ExchangeRates.BTCETH)
@@ -162,19 +136,6 @@ func (w *Watcher) process() error {
 			}
 			m = append(m, market)
 		}
-
-		// for _, market := range m {
-		// 	if market.Id != interestedMarketID {
-		// 		continue
-		// 	}
-		// 	if len(market.BestBids) == 0 {
-		// 		logrus.Infof("The interested market %s does not have any best bids", interestedMarketID)
-		// 	} else {
-		// 		for outcome, liquidityAtPrice := range market.BestBids {
-		// 			logrus.WithField("marketId", interestedMarketID).Infof("Liquidity at price for outcome %d: %#v", outcome, liquidityAtPrice)
-		// 		}
-		// 	}
-		// }
 
 		// Order the markets from biggest to smallest
 		sort.Slice(m, func(i, j int) bool {
@@ -195,6 +156,8 @@ func (w *Watcher) process() error {
 
 		logrus.Infof("Successfully uploaded market summary for block #%s", header.Number.String())
 		lastProcessedBlockNumber = header.Number
+
+		go DebugMarkets(marketsData, m)
 
 		// Write snapshot async since it is not mission critical
 		go func() {
