@@ -120,6 +120,32 @@ func (w *Watcher) process() error {
 			continue
 		}
 
+		// interestedMarketID := "0xd9cf030f0ff46c911e1f5b41e350c9d56d342e18"
+		// if data, ok := marketsData.ByMarketID[interestedMarketID]; ok {
+		// 	if data.Orders == nil {
+		// 		logrus.Infof("Orders for market %s are nil", interestedMarketID)
+
+		// 	} else {
+		// 		if len(data.Orders.OrdersByOrderIdByOrderTypeByOutcome) == 0 {
+		// 			logrus.Infof("OrdersByOrderIsByOrderTypeByOutcome for market %s is nil", interestedMarketID)
+		// 		} else {
+		// 			for _, byOrderType := range data.Orders.OrdersByOrderIdByOrderTypeByOutcome {
+		// 				if byOrderType.BuyOrdersByOrderId == nil {
+		// 					logrus.Infof("BuyOrdersByOrderId for market %s is nil", interestedMarketID)
+		// 				} else {
+		// 					if len(byOrderType.BuyOrdersByOrderId.OrdersByOrderId) == 0 {
+		// 						logrus.Infof("BuyOrdersByOrderId.OrdersByOrderId for market %s is empty", interestedMarketID)
+		// 					} else {
+		// 						for _, order := range byOrderType.BuyOrdersByOrderId.OrdersByOrderId {
+		// 							logrus.WithField("order", *order).Infof("Buy order for market %s found", interestedMarketID)
+		// 						}
+		// 					}
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+		// }
+
 		m := []*markets.Market{}
 		for _, md := range marketsData.ByMarketID {
 			market, err := translateMarketInfoToMarket(md, marketsData.ExchangeRates.ETHUSD, marketsData.ExchangeRates.BTCETH)
@@ -136,6 +162,19 @@ func (w *Watcher) process() error {
 			}
 			m = append(m, market)
 		}
+
+		// for _, market := range m {
+		// 	if market.Id != interestedMarketID {
+		// 		continue
+		// 	}
+		// 	if len(market.BestBids) == 0 {
+		// 		logrus.Infof("The interested market %s does not have any best bids", interestedMarketID)
+		// 	} else {
+		// 		for outcome, liquidityAtPrice := range market.BestBids {
+		// 			logrus.WithField("marketId", interestedMarketID).Infof("Liquidity at price for outcome %d: %#v", outcome, liquidityAtPrice)
+		// 		}
+		// 	}
+		// }
 
 		// Order the markets from biggest to smallest
 		sort.Slice(m, func(i, j int) bool {
@@ -195,20 +234,6 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 			Errorf("Failed to translate market info into market capitalization")
 		return nil, err
 	}
-	predictions, err := getPredictions(md.Info, md.Orders)
-	if err != nil {
-		logrus.WithError(err).
-			WithField("marketInfo", md.Info).
-			Errorf("Failed to translate market info into predictions")
-		return nil, err
-	}
-	marketType, err := getMarketType(md.Info)
-	if err != nil {
-		logrus.WithError(err).
-			WithField("marketInfo", *md.Info).
-			Errorf("Failed to get market type")
-		return nil, err
-	}
 	bestBids, err := getBestBids(md.Orders)
 	if err != nil {
 		logrus.WithError(err).
@@ -221,6 +246,20 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		logrus.WithError(err).
 			WithField("marketInfo", *md.Info).
 			Errorf("Failed to get best asks")
+		return nil, err
+	}
+	predictions, err := getPredictions(md.Info, md.Orders, bestBids, bestAsks)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", md.Info).
+			Errorf("Failed to translate market info into predictions")
+		return nil, err
+	}
+	marketType, err := getMarketType(md.Info)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get market type")
 		return nil, err
 	}
 
@@ -282,7 +321,7 @@ func getMarketType(info *augur.MarketInfo) (markets.MarketType, error) {
 	return 0, fmt.Errorf("Failed to parse market type: %s", info.MarketType)
 }
 
-func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) ([]*markets.Prediction, error) {
+func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) ([]*markets.Prediction, error) {
 	if info == nil {
 		return []*markets.Prediction{}, fmt.Errorf("Non nil MarketInfo required")
 	}
@@ -305,11 +344,11 @@ func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_Orde
 	predictions := []*markets.Prediction{}
 	switch info.MarketType {
 	case MarketTypeYesNo:
-		predictions = append(predictions, getYesNoPredictions(m, os)...)
+		predictions = append(predictions, getYesNoPredictions(m, os, bestBids, bestAsks)...)
 	case MarketTypeCategorical:
-		predictions = append(predictions, getCategoricalPredictions(m, os)...)
+		predictions = append(predictions, getCategoricalPredictions(m, os, bestBids, bestAsks)...)
 	case MarketTypeScalar:
-		predictions = append(predictions, getScalarPredictions(m, os)...)
+		predictions = append(predictions, getScalarPredictions(m, os, bestBids, bestAsks)...)
 	}
 	return predictions, nil
 }

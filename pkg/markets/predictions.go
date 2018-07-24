@@ -19,6 +19,7 @@ type Outcome struct {
 type Market struct {
 	MinPrice           float64
 	MaxPrice           float64
+	Volume             float64
 	ScalarDenomination string
 }
 
@@ -31,9 +32,14 @@ func convertToMarket(m *augur.MarketInfo) (*Market, error) {
 	if err != nil {
 		return &Market{}, err
 	}
+	volume, err := strconv.ParseFloat(m.Volume, 64)
+	if err != nil {
+		return &Market{}, err
+	}
 	return &Market{
 		MinPrice:           min,
 		MaxPrice:           max,
+		Volume:             volume,
 		ScalarDenomination: m.ScalarDenomination,
 	}, nil
 }
@@ -167,70 +173,71 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 	return bestAsksByOutcome, nil
 }
 
-func getYesNoPredictions(m *Market, outcomes []*Outcome) []*markets.Prediction {
-	// bestBids, err := getBestBids(orders)
-	// if err != nil {
-	// 	logrus.WithError(err).Errorf("Failed to generate asks for outcomes of yesNo market")
-	// 	return []*markets.Prediction{}, err
-	// }
-	// bestAsks, err := getBestAsk(orders)
-	// if err != nil {
-	// 	logrus.WithError(err).Errorf("Failed to generate asks for outcomes of yesNo market")
-	// 	return []*markets.Prediction{}, err
-	// }
-
-	no := outcomes[0]
-	yes := outcomes[1]
-
-	// If the market has no volume, do not return predictions
-	if no.Volume <= 0.0 && yes.Volume <= 0.0 {
+func getYesNoPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) []*markets.Prediction {
+	// If the market has no volume and no liquidity, do not return predictions
+	if m.Volume <= 0.0 && len(bestBids) == 0 && len(bestAsks) == 0 {
 		return []*markets.Prediction{}
 	}
 
-	// Derive predicted percent
-	percent := yes.Price
-	if yes.Volume <= 0.0 && no.Volume > 0.0 {
-		percent = 1.0 - no.Price
-	}
+	if m.Volume > 0.0 { // Derive predicted percent using prices
+		no := outcomes[0]
+		yes := outcomes[1]
 
-	return []*markets.Prediction{
-		{
-			Name:      "yes",
-			Percent:   float32(percent * 100),
-			OutcomeId: 1,
-		},
+		percent := yes.Price
+		if yes.Volume <= 0.0 && no.Volume > 0.0 {
+			percent = 1.0 - no.Price
+		}
+
+		return []*markets.Prediction{
+			{
+				Name:      "yes",
+				Percent:   float32(percent * 100),
+				OutcomeId: 1,
+			},
+		}
+	} else { // Derive predicted percent using liquidity
+		// If 0.0 no liquidity, use the best price for yes
+		// as the predicted percent
+
+		// If 0.0 yes liquidity, use 1 - the best price for no
+		// as the predicted percent
+
+		// If both yes and no liquidity, use the weighted avg of the
+		// best yes price and the best no price
 	}
 }
 
-func getCategoricalPredictions(m *Market, outcomes []*Outcome) []*markets.Prediction {
-	// If market has no volume, do not return predictions
-	hasVolume := false
-	for _, o := range outcomes {
-		if o.Volume > 0.0 {
-			hasVolume = true
-		}
-	}
-	if !hasVolume {
+func getCategoricalPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) []*markets.Prediction {
+	// If market has no volume and no liquidity, do not return predictions
+	if m.Volume <= 0.0 && len(bestBids) == 0 && len(bestAsks) == 0 {
 		return []*markets.Prediction{}
 	}
 
-	// Sort the outcomes so that the prediction are sent to client
-	// in order of most probable to least probable
-	sort.Slice(outcomes, func(i, j int) bool {
-		return outcomes[i].Price > outcomes[j].Price
-	})
-	predictions := []*markets.Prediction{}
-	for _, o := range outcomes {
-		predictions = append(predictions, &markets.Prediction{
-			Name:      o.Description,
-			Percent:   float32(o.Price * 100),
-			OutcomeId: o.ID,
+	if m.Volume > 0 {
+		// Sort the outcomes so that the prediction are sent to client
+		// in order of most probable to least probable
+		sort.Slice(outcomes, func(i, j int) bool {
+			return outcomes[i].Price > outcomes[j].Price
+		})
+		predictions := []*markets.Prediction{}
+		for _, o := range outcomes {
+			predictions = append(predictions, &markets.Prediction{
+				Name:      o.Description,
+				Percent:   float32(o.Price * 100),
+				OutcomeId: o.ID,
+			})
+		}
+		return predictions
+	} else {
+		// Determine bid price for each outcome
+		// If no bid price, derive bid price from lowest ask price
+		sort.Slice(outcomes, func(i, j) bool {
+			// Sort by bid price
 		})
 	}
-	return predictions
 }
 
-func getScalarPredictions(m *Market, outcomes []*Outcome) []*markets.Prediction {
+func getScalarPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) []*markets.Prediction {
 	if len(outcomes) != 2 {
 		logrus.WithField("outcomeInfos", outcomes).Errorf("`getScalarPredictions` was called without 2 `OutcomeInfo` arguments")
 		return []*markets.Prediction{}
@@ -239,22 +246,25 @@ func getScalarPredictions(m *Market, outcomes []*Outcome) []*markets.Prediction 
 	lower := outcomes[0]
 	upper := outcomes[1]
 
-	// If the market has no volume, do not return predictions
-	if lower.Volume == 0.0 && upper.Volume == 0.0 {
+	// If the market has no volume and no liquidity, do not return predictions
+	if m.Volume <= 0.0 && len(bestBids) == 0 && len(bestAsks) == 0 {
 		return []*markets.Prediction{}
 	}
 
-	// Derive predicted scalar value
-	value := upper.Price
-	if upper.Volume <= 0.0 && lower.Volume > 0.0 {
-		value = m.MaxPrice + m.MinPrice - lower.Price
-	}
+	if m.Volume > 0 { // Derive predicted scalar value using prices
+		value := upper.Price
+		if upper.Volume <= 0.0 && lower.Volume > 0.0 {
+			value = m.MaxPrice + m.MinPrice - lower.Price
+		}
 
-	return []*markets.Prediction{
-		{
-			Name:      "",
-			Value:     float32(value),
-			OutcomeId: 1,
-		},
+		return []*markets.Prediction{
+			{
+				Name:      "",
+				Value:     float32(value),
+				OutcomeId: 1,
+			},
+		}
+	} else { // Derive predicted scalar value using liquidity
+
 	}
 }
