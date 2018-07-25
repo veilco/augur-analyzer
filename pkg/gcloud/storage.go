@@ -2,8 +2,18 @@ package gcloud
 
 import (
 	"context"
+	"net/http"
+	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/spf13/viper"
+	"github.com/stateshape/augur-analyzer/pkg/env"
+	"google.golang.org/api/option"
+	ghttp "google.golang.org/api/transport/http"
+)
+
+const (
+	MaxIdleConnsPerHost = 50
 )
 
 type WriteObjectParameters struct {
@@ -14,7 +24,26 @@ type WriteObjectParameters struct {
 
 // NewStorageClient creates a new Google Cloud API client
 func NewStorageClient() (*storage.Client, error) {
-	return storage.NewClient(context.Background())
+	// Assembles options for custom client
+	options := []option.ClientOption{option.WithScopes(storage.ScopeFullControl)}
+	if viper.GetString(env.GoogleApplicationCredentials) != "" {
+		options = append(options, option.WithCredentialsFile(viper.GetString(env.GoogleApplicationCredentials)))
+	}
+
+	// Create transport
+	transport, err := ghttp.NewTransport(context.TODO(), &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 50,
+		IdleConnTimeout:     time.Minute,
+	}, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create client with custom HTTP transport
+	return storage.NewClient(context.Background(), option.WithHTTPClient(&http.Client{
+		Transport: transport,
+	}))
 }
 
 func WriteObject(client *storage.Client, params WriteObjectParameters, modifiers ...func(wrtr *storage.Writer)) error {
