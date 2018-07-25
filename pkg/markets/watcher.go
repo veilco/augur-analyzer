@@ -199,7 +199,7 @@ func (w *Watcher) process() error {
 				<-workers <- detail
 			}
 
-			// Close are the worker channels
+			// Close all the worker channels
 			for i := 0; i < gcloud.MaxIdleConnsPerHost; i++ {
 				close(<-workers)
 			}
