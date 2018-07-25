@@ -1,6 +1,8 @@
 package markets
 
 import (
+	"fmt"
+	"runtime/debug"
 	"strings"
 
 	"github.com/stateshape/augur-analyzer/pkg/env"
@@ -14,7 +16,10 @@ func DebugMarkets(inputMarketsData *MarketsData, outputMarketsData []*markets.Ma
 	// Catch all panics
 	defer func() {
 		if err := recover(); err != nil {
-			logrus.Errorf("Recovered in `DebugMarkets: %#v", err)
+			logrus.WithFields(logrus.Fields{
+				"stack": string(debug.Stack()),
+				"error": err,
+			}).Errorf("Recovered in `DebugMarkets`")
 		}
 	}()
 
@@ -42,14 +47,14 @@ func DebugMarkets(inputMarketsData *MarketsData, outputMarketsData []*markets.Ma
 	for mid, _ := range mids {
 		inputMarketData, ok := inputMarketsData.ByMarketID[mid]
 		if !ok {
-			logrus.WithField("marketId", mid).Debugf("Input market data no found for market while debugging")
+			logrus.WithField("marketId", mid).Warnf("Input market data no found for market while debugging")
 		} else {
 			printInputMarketData(mid, inputMarketData)
 		}
 
 		outputMarketData, ok := outputMarketsDataByID[mid]
 		if !ok {
-			logrus.WithField("marketId", mid).Debugf("Output market data not found for market while debugging")
+			logrus.WithField("marketId", mid).Warnf("Output market data not found for market while debugging")
 		} else {
 			printOutputMarketData(outputMarketData)
 		}
@@ -57,15 +62,15 @@ func DebugMarkets(inputMarketsData *MarketsData, outputMarketsData []*markets.Ma
 }
 
 func printInputMarketData(id string, data *MarketData) {
-	logrus.WithField("marketId", id).Debugf("Input data for market")
+	logrus.WithField("marketId", id).Warnf("Input data for market")
 
 	if data.Info != nil {
-		logrus.WithField("marketId", id).Debugf("Outstanding Shares: %s", data.Info.OutstandingShares)
-		logrus.WithField("marketId", id).Debugf("Category: %s", data.Info.Category)
-		logrus.WithField("marketId", id).Debugf("Description: %s", data.Info.Description)
-		logrus.WithField("marketId", id).Debugf("Resolution Source: %s", data.Info.ResolutionSource)
-		logrus.WithField("marketId", id).Debugf("Num Ticks: %s", data.Info.NumTicks)
-		logrus.WithField("marketId", id).Debugf("Tick Size: %s", data.Info.TickSize)
+		logrus.WithField("marketId", id).Warnf("Outstanding Shares: %s", data.Info.OutstandingShares)
+		logrus.WithField("marketId", id).Warnf("Category: %s", data.Info.Category)
+		logrus.WithField("marketId", id).Warnf("Description: %s", data.Info.Description)
+		logrus.WithField("marketId", id).Warnf("Resolution Source: %s", data.Info.ResolutionSource)
+		logrus.WithField("marketId", id).Warnf("Num Ticks: %s", data.Info.NumTicks)
+		logrus.WithField("marketId", id).Warnf("Tick Size: %s", data.Info.TickSize)
 		for _, outcome := range data.Info.Outcomes {
 			logrus.WithFields(logrus.Fields{
 				"marketId":           id,
@@ -73,10 +78,10 @@ func printInputMarketData(id string, data *MarketData) {
 				"outcomeVolume":      outcome.Volume,
 				"outcomePrice":       outcome.Price,
 				"outcomeDescription": outcome.Description,
-			}).Debugf("Outcome info")
+			}).Warnf("Outcome info")
 		}
 	} else {
-		logrus.WithField("marketId", id).Debugf("MarketData.Info is nil")
+		logrus.WithField("marketId", id).Warnf("MarketData.Info is nil")
 	}
 
 	if data.Orders != nil {
@@ -84,26 +89,40 @@ func printInputMarketData(id string, data *MarketData) {
 			logrus.WithFields(logrus.Fields{
 				"marketId":  id,
 				"outcomeId": outcomeID,
-			}).Debugf("Orders for market outcome")
-			for orderID, order := range ordersByOrderType.BuyOrdersByOrderId.OrdersByOrderId {
+			}).Warnf("Orders for market outcome")
+			if ordersByOrderType.BuyOrdersByOrderId != nil {
+				for orderID, order := range ordersByOrderType.BuyOrdersByOrderId.OrdersByOrderId {
+					logrus.WithFields(logrus.Fields{
+						"marketId":  id,
+						"outcomeId": outcomeID,
+						"orderId":   orderID,
+						"order":     fmt.Sprintf("%+v", *order),
+					}).Warnf("Buy order for market outcome")
+				}
+			} else {
 				logrus.WithFields(logrus.Fields{
 					"marketId":  id,
 					"outcomeId": outcomeID,
-					"orderId":   orderID,
-					"order":     *order,
-				}).Debugf("Buy order for market outcome")
+				}).Warnf("No buy orders for market outcome")
 			}
-			for orderID, order := range ordersByOrderType.SellOrdersByOrderId.OrdersByOrderId {
+			if ordersByOrderType.SellOrdersByOrderId != nil {
+				for orderID, order := range ordersByOrderType.SellOrdersByOrderId.OrdersByOrderId {
+					logrus.WithFields(logrus.Fields{
+						"marketId":  id,
+						"outcomeId": outcomeID,
+						"orderId":   orderID,
+						"order":     fmt.Sprintf("%+v", *order),
+					}).Warnf("Sell order for market outcome")
+				}
+			} else {
 				logrus.WithFields(logrus.Fields{
 					"marketId":  id,
 					"outcomeId": outcomeID,
-					"orderId":   orderID,
-					"order":     *order,
-				}).Debugf("Sell order for market outcome")
+				}).Warnf("No sell orders for market outcome")
 			}
 		}
 	} else {
-		logrus.WithField("marketId", id).Debugf("MarketData.Orders is nil")
+		logrus.WithField("marketId", id).Warnf("MarketData.Orders is nil")
 	}
 
 	if data.PriceHistory != nil {
@@ -115,20 +134,20 @@ func printInputMarketData(id string, data *MarketData) {
 					"price":     timestampedPrice.Price,
 					"amount":    timestampedPrice.Amount,
 					"timestamp": timestampedPrice.Timestamp,
-				}).Debugf("Timestamped price with amount for outcome")
+				}).Warnf("Timestamped price with amount for outcome")
 			}
 		}
 	} else {
-		logrus.WithField("marketId", id).Debugf("MarketData.PriceHistory is nil")
+		logrus.WithField("marketId", id).Warnf("MarketData.PriceHistory is nil")
 	}
 }
 
 func printOutputMarketData(data *markets.Market) {
-	logrus.WithField("marketId", data.Id).Debugf("Output data for market")
+	logrus.WithField("marketId", data.Id).Warnf("Output data for market")
 
 	// Best bids
 	if data.BestBids == nil {
-		logrus.WithField("marketId", data.Id).Debugf("Best bids for market is nil")
+		logrus.WithField("marketId", data.Id).Warnf("Best bids for market is nil")
 	} else {
 		for outcomeID, liquidity := range data.BestBids {
 			logrus.WithFields(logrus.Fields{
@@ -136,13 +155,13 @@ func printOutputMarketData(data *markets.Market) {
 				"outcomeId": outcomeID,
 				"amount":    liquidity.Amount,
 				"price":     liquidity.Price,
-			}).Debugf("Best bid for market outcome")
+			}).Warnf("Best bid for market outcome")
 		}
 	}
 
 	// Best asks
 	if data.BestAsks == nil {
-		logrus.WithField("marketId", data.Id).Debugf("Best asks for market is nil")
+		logrus.WithField("marketId", data.Id).Warnf("Best asks for market is nil")
 	} else {
 		for outcomeID, liquidity := range data.BestAsks {
 			logrus.WithFields(logrus.Fields{
@@ -150,13 +169,13 @@ func printOutputMarketData(data *markets.Market) {
 				"outcomeId": outcomeID,
 				"amount":    liquidity.Amount,
 				"price":     liquidity.Price,
-			}).Debugf("Best ask for market outcome")
+			}).Warnf("Best ask for market outcome")
 		}
 	}
 
 	// Predictions
 	if len(data.Predictions) == 0 {
-		logrus.WithField("marketId", data.Id).Debugf("No predictions for market")
+		logrus.WithField("marketId", data.Id).Warnf("No predictions for market")
 	} else {
 		for _, prediction := range data.Predictions {
 			logrus.WithFields(logrus.Fields{
@@ -165,7 +184,7 @@ func printOutputMarketData(data *markets.Market) {
 				"percent":   prediction.Percent,
 				"value":     prediction.Value,
 				"name":      prediction.Name,
-			}).Debugf("Prediction for outcome")
+			}).Warnf("Prediction for outcome")
 		}
 	}
 }
