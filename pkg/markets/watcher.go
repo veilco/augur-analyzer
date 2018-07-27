@@ -76,7 +76,7 @@ func (w *Watcher) Watch() {
 func (w *Watcher) process() error {
 	var lastProcessedBlockNumber *big.Int
 	for {
-		time.Sleep(time.Second * 15)
+		time.Sleep(time.Second * 20)
 		header, err := w.Web3API.HeaderByNumber(context.TODO(), nil)
 		if err != nil {
 			logrus.WithError(err).Errorf("Failed to get latest block header")
