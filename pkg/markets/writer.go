@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"strings"
 
 	"github.com/stateshape/augur-analyzer/pkg/gcloud"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
@@ -13,8 +14,9 @@ import (
 )
 
 const (
-	MarketsSummariesObjectNameV1 = "markets.pb"
-	MarketsSummariesObjectNameV2 = "markets"
+	MarketsSummariesObjectNameV1   = "markets.pb"
+	MarketsSummariesObjectNameV2   = "markets"
+	MarketDetailObjectNameV1Format = "augur/markets/%s"
 
 	MarketsSnapshotObjectNameV1 = "snapshot"
 )
@@ -106,4 +108,33 @@ func (w *Writer) WriteMarketsSnapshot(snapshot *markets.MarketsSnapshot) error {
 	return nil
 }
 
-func (w *Writer) WriteMarketDetail() {}
+func (w *Writer) WriteMarketDetail(detail *markets.MarketDetail) error {
+	protobuf, err := proto.Marshal(detail)
+	if err != nil {
+		return err
+	}
+
+	gzipped := bytes.NewBuffer(nil)
+	gzipWrtr := gzip.NewWriter(gzipped)
+	if _, err := gzipWrtr.Write(protobuf); err != nil {
+		return err
+	}
+	if err := gzipWrtr.Close(); err != nil {
+		return err
+	}
+	if err := gcloud.WriteObject(w.GCloudStorageAPI, gcloud.WriteObjectParameters{
+		Bucket:     w.Bucket,
+		ObjectName: fmt.Sprintf(MarketDetailObjectNameV1Format, strings.ToLower(detail.MarketId)),
+		Content:    gzipped.Bytes(),
+	}, func(wrtr *storage.Writer) {
+		wrtr.ContentType = "application/octet-stream"
+		wrtr.CacheControl = "public, max-age=15"
+		wrtr.ContentEncoding = "gzip"
+		wrtr.ACL = []storage.ACLRule{
+			{storage.AllUsers, storage.RoleReader},
+		}
+	}); err != nil {
+		return err
+	}
+	return nil
+}

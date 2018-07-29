@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stateshape/augur-analyzer/pkg/env"
+	"github.com/stateshape/augur-analyzer/pkg/gcloud"
 	"github.com/stateshape/augur-analyzer/pkg/pricing"
 	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
@@ -75,7 +76,7 @@ func (w *Watcher) Watch() {
 func (w *Watcher) process() error {
 	var lastProcessedBlockNumber *big.Int
 	for {
-		time.Sleep(time.Second * 15)
+		time.Sleep(time.Second * 20)
 		header, err := w.Web3API.HeaderByNumber(context.TODO(), nil)
 		if err != nil {
 			logrus.WithError(err).Errorf("Failed to get latest block header")
@@ -154,7 +155,7 @@ func (w *Watcher) process() error {
 			continue
 		}
 
-		logrus.Infof("Successfully uploaded market summary for block #%s", header.Number.String())
+		logrus.Infof("Successfully uploaded markets summary for block #%s", header.Number.String())
 		lastProcessedBlockNumber = header.Number
 
 		go DebugMarkets(marketsData, m)
@@ -169,10 +170,61 @@ func (w *Watcher) process() error {
 				logrus.WithError(err).Errorf("Failed to write markets snapshot to GCloud storage")
 				return
 			}
+			logrus.Infof("Successfully uploaded markets snapshot for block #%s", header.Number.String())
+
+		}()
+		go func() {
+			details := constructMarketDetails(m, marketsData)
+			// Write `gcloud.MaxIdleConnsPerHost` details at a time
+
+			// Create a channel of work channels, and load all of the work channels in it
+			workers := make(chan chan *markets.MarketDetail, gcloud.MaxIdleConnsPerHost)
+			for i := 0; i < gcloud.MaxIdleConnsPerHost; i++ {
+				// Create work channel and goroutine for each worker
+				worker := make(chan *markets.MarketDetail)
+				go func() {
+					for detail := range worker {
+						if err := w.Writer.WriteMarketDetail(detail); err != nil {
+							logrus.WithField("marketId", detail.MarketId).WithError(err).Errorf("Failed to write market detail to GCloud storage")
+						}
+						workers <- worker
+					}
+				}()
+				workers <- worker
+			}
+
+			// Assign work
+			for _, detail := range details {
+				// Get an available worker and send it work
+				<-workers <- detail
+			}
+
+			// Close all the worker channels
+			for i := 0; i < gcloud.MaxIdleConnsPerHost; i++ {
+				close(<-workers)
+			}
+			close(workers)
+
+			logrus.Infof("Successfully uploaded market detail objects for block #%s", header.Number.String())
 		}()
 
 		logrus.WithField("blockNumber", header.Number.String()).Infof("Finished processing block")
 	}
+}
+
+func constructMarketDetails(ms []*markets.Market, msd *MarketsData) []*markets.MarketDetail {
+	details := []*markets.MarketDetail{}
+	for _, market := range ms {
+		detail := &markets.MarketDetail{
+			MarketId:      market.Id,
+			MarketSummary: market,
+		}
+		if md, ok := msd.ByMarketID[market.Id]; ok {
+			detail.MarketInfo = mapMarketInfo(md.Info)
+		}
+		details = append(details, detail)
+	}
+	return details
 }
 
 func deriveTotalMarketsCapitalization(ms []*markets.Market) *markets.Price {
@@ -323,95 +375,7 @@ func mapMarketInfos(marketsData *MarketsData) []*markets.MarketInfo {
 		if _, ok := blacklist[id]; ok {
 			continue
 		}
-
-		// Map equal types
-		m := &markets.MarketInfo{
-			Id:                        info.Id,
-			Universe:                  info.Universe,
-			MarketType:                info.MarketType,
-			NumOutcomes:               info.NumOutcomes,
-			MinPrice:                  info.MinPrice,
-			MaxPrice:                  info.MaxPrice,
-			CumulativeScale:           info.CumulativeScale,
-			Author:                    info.Author,
-			CreationTime:              info.CreationTime,
-			CreationBlock:             info.CreationBlock,
-			CreationFee:               info.CreationFee,
-			SettlementFee:             info.SettlementFee,
-			ReportingFeeRate:          info.ReportingFeeRate,
-			MarketCreatorFeeRate:      info.MarketCreatorFeeRate,
-			MarketCreatorFeesBalance:  info.MarketCreatorFeesBalance,
-			MarketCreatorMailbox:      info.MarketCreatorMailbox,
-			MarketCreatorMailboxOwner: info.MarketCreatorMailboxOwner,
-			InitialReportSize:         info.InitialReportSize,
-			Category:                  info.Category,
-			Tags:                      info.Tags,
-			Volume:                    info.Volume,
-			OutstandingShares:         info.OutstandingShares,
-			FeeWindow:                 info.FeeWindow,
-			EndTime:                   info.EndTime,
-			FinalizationBlockNumber:   info.FinalizationBlockNumber,
-			FinalizationTime:          info.FinalizationTime,
-			// ReportingState:            info.ReportingState,
-			Forking:               info.Forking,
-			NeedsMigration:        info.NeedsMigration,
-			Description:           info.Description,
-			Details:               info.Details,
-			ScalarDenomination:    info.ScalarDenomination,
-			DesignatedReporter:    info.DesignatedReporter,
-			DesignatedReportStake: info.DesignatedReportStake,
-			ResolutionSource:      info.ResolutionSource,
-			NumTicks:              info.NumTicks,
-			TickSize:              info.TickSize,
-			// Consensus:                 info.Consensus,
-			// Outcomes:                  info.Outcomes,
-		}
-
-		// Map non equal types
-		switch info.ReportingState {
-		case augur.ReportingState_PRE_REPORTING:
-			m.ReportingState = markets.ReportingState_PRE_REPORTING
-		case augur.ReportingState_DESIGNATED_REPORTING:
-			m.ReportingState = markets.ReportingState_DESIGNATED_REPORTING
-		case augur.ReportingState_OPEN_REPORTING:
-			m.ReportingState = markets.ReportingState_OPEN_REPORTING
-		case augur.ReportingState_CROWDSOURCING_DISPUTE:
-			m.ReportingState = markets.ReportingState_CROWDSOURCING_DISPUTE
-		case augur.ReportingState_AWAITING_NEXT_WINDOW:
-			m.ReportingState = markets.ReportingState_AWAITING_NEXT_WINDOW
-		case augur.ReportingState_AWAITING_FINALIZATION:
-			m.ReportingState = markets.ReportingState_AWAITING_FINALIZATION
-		case augur.ReportingState_FINALIZED:
-			m.ReportingState = markets.ReportingState_FINALIZED
-		case augur.ReportingState_FORKING:
-			m.ReportingState = markets.ReportingState_FORKING
-		case augur.ReportingState_AWAITING_NO_REPORT_MIGRATION:
-			m.ReportingState = markets.ReportingState_AWAITING_NO_REPORT_MIGRATION
-		case augur.ReportingState_AWAITING_FORK_MIGRATION:
-			m.ReportingState = markets.ReportingState_AWAITING_FORK_MIGRATION
-		default:
-			logrus.WithField("reportingState", info.ReportingState).
-				Warnf("Unable to assign reporting state for market info, unhandled enum from augur proto")
-		}
-		if info.Consensus != nil {
-			m.Consensus = &markets.NormalizedPayout{
-				IsInvalid: info.Consensus.IsInvalid,
-				Payout:    info.Consensus.Payout,
-			}
-		}
-		m.Outcomes = []*markets.OutcomeInfo{}
-		for _, outcome := range info.Outcomes {
-			if outcome == nil {
-				continue
-			}
-			m.Outcomes = append(m.Outcomes, &markets.OutcomeInfo{
-				Id:          outcome.Id,
-				Volume:      outcome.Volume,
-				Price:       outcome.Price,
-				Description: outcome.Description,
-			})
-		}
-		mis = append(mis, m)
+		mis = append(mis, mapMarketInfo(info))
 	}
 	return mis
 }
@@ -509,6 +473,96 @@ func (w *Watcher) getMarketsData(ctx context.Context, marketAddresses []string) 
 			BTCETH: btceth,
 		},
 	}, nil
+}
+
+func mapMarketInfo(info *augur.MarketInfo) *markets.MarketInfo {
+	m := &markets.MarketInfo{
+		Id:                        info.Id,
+		Universe:                  info.Universe,
+		MarketType:                info.MarketType,
+		NumOutcomes:               info.NumOutcomes,
+		MinPrice:                  info.MinPrice,
+		MaxPrice:                  info.MaxPrice,
+		CumulativeScale:           info.CumulativeScale,
+		Author:                    info.Author,
+		CreationTime:              info.CreationTime,
+		CreationBlock:             info.CreationBlock,
+		CreationFee:               info.CreationFee,
+		SettlementFee:             info.SettlementFee,
+		ReportingFeeRate:          info.ReportingFeeRate,
+		MarketCreatorFeeRate:      info.MarketCreatorFeeRate,
+		MarketCreatorFeesBalance:  info.MarketCreatorFeesBalance,
+		MarketCreatorMailbox:      info.MarketCreatorMailbox,
+		MarketCreatorMailboxOwner: info.MarketCreatorMailboxOwner,
+		InitialReportSize:         info.InitialReportSize,
+		Category:                  info.Category,
+		Tags:                      info.Tags,
+		Volume:                    info.Volume,
+		OutstandingShares:         info.OutstandingShares,
+		FeeWindow:                 info.FeeWindow,
+		EndTime:                   info.EndTime,
+		FinalizationBlockNumber:   info.FinalizationBlockNumber,
+		FinalizationTime:          info.FinalizationTime,
+		// ReportingState:            info.ReportingState,
+		Forking:               info.Forking,
+		NeedsMigration:        info.NeedsMigration,
+		Description:           info.Description,
+		Details:               info.Details,
+		ScalarDenomination:    info.ScalarDenomination,
+		DesignatedReporter:    info.DesignatedReporter,
+		DesignatedReportStake: info.DesignatedReportStake,
+		ResolutionSource:      info.ResolutionSource,
+		NumTicks:              info.NumTicks,
+		TickSize:              info.TickSize,
+		// Consensus:                 info.Consensus,
+		// Outcomes:                  info.Outcomes,
+	}
+
+	// Map non equal types
+	switch info.ReportingState {
+	case augur.ReportingState_PRE_REPORTING:
+		m.ReportingState = markets.ReportingState_PRE_REPORTING
+	case augur.ReportingState_DESIGNATED_REPORTING:
+		m.ReportingState = markets.ReportingState_DESIGNATED_REPORTING
+	case augur.ReportingState_OPEN_REPORTING:
+		m.ReportingState = markets.ReportingState_OPEN_REPORTING
+	case augur.ReportingState_CROWDSOURCING_DISPUTE:
+		m.ReportingState = markets.ReportingState_CROWDSOURCING_DISPUTE
+	case augur.ReportingState_AWAITING_NEXT_WINDOW:
+		m.ReportingState = markets.ReportingState_AWAITING_NEXT_WINDOW
+	case augur.ReportingState_AWAITING_FINALIZATION:
+		m.ReportingState = markets.ReportingState_AWAITING_FINALIZATION
+	case augur.ReportingState_FINALIZED:
+		m.ReportingState = markets.ReportingState_FINALIZED
+	case augur.ReportingState_FORKING:
+		m.ReportingState = markets.ReportingState_FORKING
+	case augur.ReportingState_AWAITING_NO_REPORT_MIGRATION:
+		m.ReportingState = markets.ReportingState_AWAITING_NO_REPORT_MIGRATION
+	case augur.ReportingState_AWAITING_FORK_MIGRATION:
+		m.ReportingState = markets.ReportingState_AWAITING_FORK_MIGRATION
+	default:
+		logrus.WithField("reportingState", info.ReportingState).
+			Warnf("Unable to assign reporting state for market info, unhandled enum from augur proto")
+	}
+	if info.Consensus != nil {
+		m.Consensus = &markets.NormalizedPayout{
+			IsInvalid: info.Consensus.IsInvalid,
+			Payout:    info.Consensus.Payout,
+		}
+	}
+	m.Outcomes = []*markets.OutcomeInfo{}
+	for _, outcome := range info.Outcomes {
+		if outcome == nil {
+			continue
+		}
+		m.Outcomes = append(m.Outcomes, &markets.OutcomeInfo{
+			Id:          outcome.Id,
+			Volume:      outcome.Volume,
+			Price:       outcome.Price,
+			Description: outcome.Description,
+		})
+	}
+	return m
 }
 
 func getLastTradeTimeFromPriceHistory(priceHistory *augur.MarketPriceHistory) uint64 {

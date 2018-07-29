@@ -332,7 +332,7 @@ func getScalarPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map
 
 		return []*markets.Prediction{
 			{
-				Name:      "",
+				Name:      m.ScalarDenomination,
 				Value:     float32(value),
 				OutcomeId: 1,
 			},
@@ -372,7 +372,7 @@ func getScalarPredictions(m *Market, outcomes []*Outcome, bestBids, bestAsks map
 
 	return []*markets.Prediction{
 		{
-			Name:      "",
+			Name:      m.ScalarDenomination,
 			Value:     float32(value),
 			OutcomeId: 1,
 		},
