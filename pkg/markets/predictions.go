@@ -69,7 +69,6 @@ func convertToOutcomes(ois []*augur.OutcomeInfo) ([]*Outcome, error) {
 // the lowest sell orders
 func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
 	bestBidsByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
-	bidPriceIndexes := map[float32]int{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
 		return bestBidsByOutcome, nil
@@ -84,6 +83,7 @@ func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 			continue
 		}
 
+		bidPriceIndexes := map[float32]int{}
 		for _, order := range ordersByOrderType.BuyOrdersByOrderId.OrdersByOrderId {
 			if order.OrderState != augur.OrderState_OPEN {
 				continue
@@ -123,7 +123,7 @@ func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 	}
 	for _, listLiquidityAtPrice := range bestBidsByOutcome {
 		sort.Slice(listLiquidityAtPrice.LiquidityAtPrice, func(i, j int) bool {
-			return listLiquidityAtPrice.LiquidityAtPrice[i].Price < listLiquidityAtPrice.LiquidityAtPrice[j].Price
+			return listLiquidityAtPrice.LiquidityAtPrice[i].Price > listLiquidityAtPrice.LiquidityAtPrice[j].Price
 		})
 	}
 	return bestBidsByOutcome, nil
@@ -131,7 +131,6 @@ func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 
 func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
 	bestAsksByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
-	askPriceIndexes := map[float32]int{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
 		return bestAsksByOutcome, nil
@@ -148,6 +147,7 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 			continue
 		}
 
+		askPriceIndexes := map[float32]int{}
 		for _, order := range ordersByOrderType.SellOrdersByOrderId.OrdersByOrderId {
 			if order.OrderState != augur.OrderState_OPEN {
 				continue

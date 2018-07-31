@@ -296,6 +296,14 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		return nil, err
 	}
 
+	volume, err := getMarketVolume(md.Info, ethusd, btceth)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get market volume")
+		return nil, err
+	}
+
 	_, featured := featuredlist[md.Info.Id]
 
 	return &markets.Market{
@@ -316,6 +324,7 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		LastTradeTime:        getLastTradeTimeFromPriceHistory(md.PriceHistory.MarketPriceHistory),
 		BestBids:             bestBids,
 		BestAsks:             bestAsks,
+		Volume:               volume,
 		Bids:                 bidsByOutcome,
 		Asks:                 asksByOutcome,
 	}, nil
@@ -338,8 +347,8 @@ func translateMarketInfoToMarketCapitalization(info *augur.MarketInfo, ethusd, b
 	// TODO: ensure downsizing float will not result in lost information
 	return &markets.Price{
 		Eth: float32(outstandingShares),
-		Usd: float32((outstandingShares * ethusd)),
-		Btc: float32((outstandingShares / btceth)),
+		Usd: float32(outstandingShares * ethusd),
+		Btc: float32(outstandingShares / btceth),
 	}, nil
 }
 
@@ -353,6 +362,18 @@ func getMarketType(info *augur.MarketInfo) (markets.MarketType, error) {
 		return markets.MarketType_SCALAR, nil
 	}
 	return 0, fmt.Errorf("Failed to parse market type: %s", info.MarketType)
+}
+
+func getMarketVolume(info *augur.MarketInfo, ethusd, btceth float64) (*markets.Price, error) {
+	volume, err := strconv.ParseFloat(info.Volume, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &markets.Price{
+		Eth: float32(volume),
+		Usd: float32(volume * ethusd),
+		Btc: float32(volume / btceth),
+	}, nil
 }
 
 func getPredictions(info *augur.MarketInfo, orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome, bestBids, bestAsks map[uint64]*markets.LiquidityAtPrice) ([]*markets.Prediction, error) {
