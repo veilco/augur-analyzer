@@ -67,18 +67,19 @@ func convertToOutcomes(ois []*augur.OutcomeInfo) ([]*Outcome, error) {
 
 // For each outcome we want to find the highest buy orders and
 // the lowest sell orders
-func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.LiquidityAtPrice, error) {
-	bestBidsByOutcome := map[uint64]*markets.LiquidityAtPrice{}
+func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
+	bestBidsByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
+	bidPriceIndexes := map[float32]int{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
 		return bestBidsByOutcome, nil
 	}
 
 	for outcome, ordersByOrderType := range orders.OrdersByOrderIdByOrderTypeByOutcome {
-		bestBidsByOutcome[outcome] = &markets.LiquidityAtPrice{
-			Price:  0.0,
-			Amount: 0.0,
+		bestBidsByOutcome[outcome] = &markets.ListLiquidityAtPrice{
+			LiquidityAtPrice: []*markets.LiquidityAtPrice{},
 		}
+
 		if ordersByOrderType.BuyOrdersByOrderId == nil || len(ordersByOrderType.BuyOrdersByOrderId.OrdersByOrderId) == 0 {
 			continue
 		}
@@ -95,7 +96,7 @@ func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
 				}).Errorf("Failed to parse order price from string")
-				return map[uint64]*markets.LiquidityAtPrice{}, err
+				return map[uint64]*markets.ListLiquidityAtPrice{}, err
 			}
 			amount, err := strconv.ParseFloat(order.Amount, 32)
 			if err != nil {
@@ -105,33 +106,44 @@ func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
 				}).Errorf("Failed to parse order amount from string")
-				return map[uint64]*markets.LiquidityAtPrice{}, err
+				return map[uint64]*markets.ListLiquidityAtPrice{}, err
 			}
 
 			// Accumulate all liquidity at the highest bid price
-			if float64(bestBidsByOutcome[outcome].Price) == price {
-				bestBidsByOutcome[outcome].Amount += float32(amount)
-			} else if float64(bestBidsByOutcome[outcome].Price) < price {
-				bestBidsByOutcome[outcome].Price = float32(price)
-				bestBidsByOutcome[outcome].Amount = float32(amount)
+			if index, ok := bidPriceIndexes[float32(price)]; ok {
+				bestBidsByOutcome[outcome].LiquidityAtPrice[index].Amount += float32(amount)
+			} else {
+				bestBidsByOutcome[outcome].LiquidityAtPrice = append(bestBidsByOutcome[outcome].LiquidityAtPrice, &markets.LiquidityAtPrice{
+					Price:  float32(price),
+					Amount: float32(amount),
+				})
+				bidPriceIndexes[float32(price)] = len(bestBidsByOutcome[outcome].LiquidityAtPrice) - 1
 			}
 		}
+	}
+	for _, listLiquidityAtPrice := range bestBidsByOutcome {
+		sort.Slice(listLiquidityAtPrice.LiquidityAtPrice, func(i, j int) bool {
+			return listLiquidityAtPrice.LiquidityAtPrice[i].Price < listLiquidityAtPrice.LiquidityAtPrice[j].Price
+		})
 	}
 	return bestBidsByOutcome, nil
 }
 
-func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.LiquidityAtPrice, error) {
-	bestAsksByOutcome := map[uint64]*markets.LiquidityAtPrice{}
+func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
+	bestAsksByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
+	askPriceIndexes := map[float32]int{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
 		return bestAsksByOutcome, nil
 	}
 
 	for outcome, ordersByOrderType := range orders.OrdersByOrderIdByOrderTypeByOutcome {
-		bestAsksByOutcome[outcome] = &markets.LiquidityAtPrice{
-			Price:  0.0,
-			Amount: 0.0,
+		// Instantiate the map for the outcome
+		bestAsksByOutcome[outcome] = &markets.ListLiquidityAtPrice{
+			LiquidityAtPrice: []*markets.LiquidityAtPrice{},
 		}
+
+		// If no sell orders for outcome skip
 		if ordersByOrderType.SellOrdersByOrderId == nil || len(ordersByOrderType.SellOrdersByOrderId.OrdersByOrderId) == 0 {
 			continue
 		}
@@ -148,7 +160,7 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
 				}).Errorf("Failed to parse order price from string")
-				return map[uint64]*markets.LiquidityAtPrice{}, err
+				return map[uint64]*markets.ListLiquidityAtPrice{}, err
 			}
 			amount, err := strconv.ParseFloat(order.Amount, 32)
 			if err != nil {
@@ -158,17 +170,25 @@ func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 					"orderId":              order.OrderId,
 					"orderTransactionHash": order.TransactionHash,
 				}).Errorf("Failed to parse order amount from string")
-				return map[uint64]*markets.LiquidityAtPrice{}, err
+				return map[uint64]*markets.ListLiquidityAtPrice{}, err
 			}
 
-			// Accumulate all liquidity at the highest bid price
-			if float64(bestAsksByOutcome[outcome].Price) == price {
-				bestAsksByOutcome[outcome].Amount += float32(amount)
-			} else if float64(bestAsksByOutcome[outcome].Price) == 0 || float64(bestAsksByOutcome[outcome].Price) > price {
-				bestAsksByOutcome[outcome].Price = float32(price)
-				bestAsksByOutcome[outcome].Amount = float32(amount)
+			// Accumulate all liquidity at the each price point
+			if index, ok := askPriceIndexes[float32(price)]; ok {
+				bestAsksByOutcome[outcome].LiquidityAtPrice[index].Amount += float32(amount)
+			} else {
+				bestAsksByOutcome[outcome].LiquidityAtPrice = append(bestAsksByOutcome[outcome].LiquidityAtPrice, &markets.LiquidityAtPrice{
+					Price:  float32(price),
+					Amount: float32(amount),
+				})
+				askPriceIndexes[float32(price)] = len(bestAsksByOutcome[outcome].LiquidityAtPrice) - 1
 			}
 		}
+	}
+	for _, listLiquidityAtPrices := range bestAsksByOutcome {
+		sort.Slice(listLiquidityAtPrices.LiquidityAtPrice, func(i, j int) bool {
+			return listLiquidityAtPrices.LiquidityAtPrice[i].Price < listLiquidityAtPrices.LiquidityAtPrice[j].Price
+		})
 	}
 	return bestAsksByOutcome, nil
 }

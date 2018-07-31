@@ -249,20 +249,37 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 			Errorf("Failed to translate market info into market capitalization")
 		return nil, err
 	}
-	bestBids, err := getBestBids(md.Orders)
+
+	bidsByOutcome, err := getBestBids(md.Orders)
 	if err != nil {
 		logrus.WithError(err).
 			WithField("marketInfo", *md.Info).
-			Errorf("Failed to get best bids")
+			Errorf("Failed to get bids by outcome")
 		return nil, err
 	}
-	bestAsks, err := getBestAsks(md.Orders)
+	bestBids := map[uint64]*markets.LiquidityAtPrice{}
+	for outcome, list := range bidsByOutcome {
+		if len(list.LiquidityAtPrice) <= 0 {
+			continue
+		}
+		bestBids[outcome] = list.LiquidityAtPrice[0]
+	}
+
+	asksByOutcome, err := getBestAsks(md.Orders)
 	if err != nil {
 		logrus.WithError(err).
 			WithField("marketInfo", *md.Info).
-			Errorf("Failed to get best asks")
+			Errorf("Failed to get asks by outcome")
 		return nil, err
 	}
+	bestAsks := map[uint64]*markets.LiquidityAtPrice{}
+	for outcome, asks := range asksByOutcome {
+		if len(asks.LiquidityAtPrice) <= 0 {
+			continue
+		}
+		bestAsks[outcome] = asks.LiquidityAtPrice[0]
+	}
+
 	predictions, err := getPredictions(md.Info, md.Orders, bestBids, bestAsks)
 	if err != nil {
 		logrus.WithError(err).
@@ -270,6 +287,7 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 			Errorf("Failed to translate market info into predictions")
 		return nil, err
 	}
+
 	marketType, err := getMarketType(md.Info)
 	if err != nil {
 		logrus.WithError(err).
@@ -292,13 +310,14 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		CreationTime:         md.Info.CreationTime,
 		CreationBlock:        md.Info.CreationBlock,
 		ResolutionSource:     md.Info.ResolutionSource,
-		Details:              md.Info.Details,
 		Tags:                 md.Info.Tags,
 		IsFeatured:           featured,
 		Category:             md.Info.Category,
 		LastTradeTime:        getLastTradeTimeFromPriceHistory(md.PriceHistory.MarketPriceHistory),
 		BestBids:             bestBids,
 		BestAsks:             bestAsks,
+		Bids:                 bidsByOutcome,
+		Asks:                 asksByOutcome,
 	}, nil
 
 }
