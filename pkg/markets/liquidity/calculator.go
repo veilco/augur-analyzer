@@ -38,8 +38,9 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		// Since there are len(outcomes) + 1 different ways to sell the shares back into the market
 		// try them each to observe their profitability.
 
-		// Option 1: Sell all shares individually using the bids for each outcome.
-		// Option 2: Sell one share individually using the bids in the orderbook, sell the rest of the shares using the asks in the order book.
+		// Option 1: Sell all shares individually using the bids for each respective outcome.
+		// Option 2: Sell one share individually using the bids in its respective orderbook, and
+		//           sell the rest of the shares using the asks in the order book.
 
 		// estimatedProceeds[i] is the proceeds from selling complete sets into the outcomes[i] order book.
 		// estiamtedProceeds[len(outcomes)] is the proceeds from selling each share individually into their respective order books
@@ -53,7 +54,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 			estimatedProceeds[i] += books[i].TakeAsks(sharesPerCompleteSet, dryRun)
 		}
 
-		// Determine strategy which yeilds the most proceeds
+		// Determine strategy which yields the most proceeds
 		maxProceeds := 0.0
 		maxProceedsIndex := 0
 		for i := 0; i < len(estimatedProceeds); i++ {
