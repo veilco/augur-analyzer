@@ -17,7 +17,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 	// Allowance needs to be in the same denomination that the orders are priced in
 
 	// Due to rounding, it might be that case that we spend up to `0.5 * sharesPerCompleteSet` more money
-	// than the `currencyAmountToSpend` parameter says.
+	// than the `allowance` parameter says.
 	completeSets := math.Round(allowance.Float64() / sharesPerCompleteSet)
 
 	// Keep track of money made from selling complete sets
