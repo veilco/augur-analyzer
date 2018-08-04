@@ -64,7 +64,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 			}
 		}
 
-		// Unable to sell into market order books
+		// Unable to sell, end incremental sell loop
 		if maxProceeds == 0 {
 			break
 		}
