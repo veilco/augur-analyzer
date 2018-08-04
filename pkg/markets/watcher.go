@@ -338,13 +338,17 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 	}
 	const completeSetSizeRatio = 0.1
 	for _, tranche := range liquidity.Tranches {
+		clones := []liquidity.OutcomeOrderBook{}
+		for _, book := range books {
+			clones = append(clones, book.DeepClone())
+		}
 		// Determine shares per complete set
 		sharesPerCompleteSet := tranche.Ether().Float64() * completeSetSizeRatio
 
 		// Ensure the allowance is in the correct denomination
 		allowance := tranche.Ether()
 
-		retentionRatio := w.LiquidityCalculator.GetLiquidityRetentionRatio(sharesPerCompleteSet, allowance, books)
+		retentionRatio := w.LiquidityCalculator.GetLiquidityRetentionRatio(sharesPerCompleteSet, allowance, clones)
 		liquidityMetrics.RetentionRatioByMillietherTranche[tranche.Uint64()] = float32(retentionRatio)
 	}
 

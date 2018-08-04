@@ -30,7 +30,24 @@ func NewOutcomeOrderBook(bids []*markets.LiquidityAtPrice, asks []*markets.Liqui
 }
 
 func (oob *outcomeOrderBook) DeepClone() OutcomeOrderBook {
-	return oob
+	bidsCopy := []*markets.LiquidityAtPrice{}
+	asksCopy := []*markets.LiquidityAtPrice{}
+	for _, bid := range oob.Bids {
+		bidsCopy = append(bidsCopy, &markets.LiquidityAtPrice{
+			Price:  bid.Price,
+			Amount: bid.Amount,
+		})
+	}
+	for _, ask := range oob.Asks {
+		asksCopy = append(asksCopy, &markets.LiquidityAtPrice{
+			Price:  ask.Price,
+			Amount: ask.Amount,
+		})
+	}
+	return &outcomeOrderBook{
+		Bids: bidsCopy,
+		Asks: asksCopy,
+	}
 }
 
 func (oob *outcomeOrderBook) TakeBids(maxSharesToTake float64, opts TakeOptions) (proceeds float64) {
