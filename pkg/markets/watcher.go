@@ -11,6 +11,7 @@ import (
 
 	"github.com/stateshape/augur-analyzer/pkg/env"
 	"github.com/stateshape/augur-analyzer/pkg/gcloud"
+	"github.com/stateshape/augur-analyzer/pkg/markets/liquidity"
 	"github.com/stateshape/augur-analyzer/pkg/pricing"
 	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
@@ -28,10 +29,11 @@ const (
 )
 
 type Watcher struct {
-	PricingAPI pricing.PricingClient
-	Web3API    *ethclient.Client
-	AugurAPI   augur.MarketsApiClient
-	Writer     *Writer
+	PricingAPI          pricing.PricingClient
+	Web3API             *ethclient.Client
+	AugurAPI            augur.MarketsApiClient
+	Writer              *Writer
+	LiquidityCalculator liquidity.Calculator
 }
 
 type MarketsData struct {
@@ -54,7 +56,7 @@ func NewWatcher(pricingAPI pricing.PricingClient, web3API *ethclient.Client, aug
 	return &Watcher{pricingAPI, web3API, augurAPI, &Writer{
 		Bucket:           viper.GetString(env.GCloudStorageBucket),
 		GCloudStorageAPI: storageAPI,
-	}}
+	}, liquidity.NewCalculator()}
 }
 
 func (w *Watcher) Watch() {
@@ -123,7 +125,7 @@ func (w *Watcher) process() error {
 
 		m := []*markets.Market{}
 		for _, md := range marketsData.ByMarketID {
-			market, err := translateMarketInfoToMarket(md, marketsData.ExchangeRates.ETHUSD, marketsData.ExchangeRates.BTCETH)
+			market, err := w.translateMarketInfoToMarket(md, marketsData.ExchangeRates.ETHUSD, marketsData.ExchangeRates.BTCETH)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{
 					"block":         header.Number.String(),
@@ -149,6 +151,15 @@ func (w *Watcher) process() error {
 			TotalMarketsCapitalization: deriveTotalMarketsCapitalization(m),
 			Markets:                    m,
 			GenerationTime:             uint64(time.Now().Unix()),
+			LiquidityMetricsConfig: &markets.LiquidityMetricsConfig{
+				MillietherTranches: func() []uint64 {
+					tranches := []uint64{}
+					for _, tranche := range liquidity.Tranches {
+						tranches = append(tranches, tranche.Uint64())
+					}
+					return tranches
+				}(),
+			},
 		}
 		if err := w.Writer.WriteMarketsSummary(summary); err != nil {
 			logrus.WithError(err).Errorf("Failed to write markets summary to GCloud storage")
@@ -173,10 +184,11 @@ func (w *Watcher) process() error {
 			logrus.Infof("Successfully uploaded markets snapshot for block #%s", header.Number.String())
 
 		}()
+
 		go func() {
 			details := constructMarketDetails(m, marketsData)
-			// Write `gcloud.MaxIdleConnsPerHost` details at a time
 
+			// Write `gcloud.MaxIdleConnsPerHost` details at a time
 			// Create a channel of work channels, and load all of the work channels in it
 			workers := make(chan chan *markets.MarketDetail, gcloud.MaxIdleConnsPerHost)
 			for i := 0; i < gcloud.MaxIdleConnsPerHost; i++ {
@@ -237,7 +249,7 @@ func deriveTotalMarketsCapitalization(ms []*markets.Market) *markets.Price {
 	return price
 }
 
-func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*markets.Market, error) {
+func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*markets.Market, error) {
 	if md.Info == nil {
 		return nil, fmt.Errorf("`translateMarketInfoToMarket` required a non nil MarketInfo as an argument")
 	}
@@ -304,6 +316,38 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		return nil, err
 	}
 
+	liquidityMetrics := &markets.LiquidityMetrics{
+		RetentionRatioByMillietherTranche: map[uint64]float32{},
+	}
+	// Construct the order books for liquidity calculations
+	books := []liquidity.OutcomeOrderBook{}
+	for _, outcome := range md.Info.Outcomes {
+		asksList, ok := asksByOutcome[outcome.Id]
+		if !ok {
+			asksList = &markets.ListLiquidityAtPrice{
+				LiquidityAtPrice: []*markets.LiquidityAtPrice{},
+			}
+		}
+		bidsList, ok := bidsByOutcome[outcome.Id]
+		if !ok {
+			bidsList = &markets.ListLiquidityAtPrice{
+				LiquidityAtPrice: []*markets.LiquidityAtPrice{},
+			}
+		}
+		books = append(books, liquidity.NewOutcomeOrderBook(bidsList.LiquidityAtPrice, asksList.LiquidityAtPrice))
+	}
+	const completeSetSizeRatio = 0.1
+	for _, tranche := range liquidity.Tranches {
+		// Determine shares per complete set
+		sharesPerCompleteSet := tranche.Ether().Float64() * completeSetSizeRatio
+
+		// Ensure the allowance is in the correct denomination
+		allowance := tranche.Ether()
+
+		retentionRatio := w.LiquidityCalculator.GetLiquidityRetentionRatio(sharesPerCompleteSet, allowance, books)
+		liquidityMetrics.RetentionRatioByMillietherTranche[tranche.Uint64()] = float32(retentionRatio)
+	}
+
 	_, featured := featuredlist[md.Info.Id]
 
 	return &markets.Market{
@@ -327,6 +371,7 @@ func translateMarketInfoToMarket(md *MarketData, ethusd, btceth float64) (*marke
 		Volume:               volume,
 		Bids:                 bidsByOutcome,
 		Asks:                 asksByOutcome,
+		LiquidityMetrics:     liquidityMetrics,
 	}, nil
 
 }
