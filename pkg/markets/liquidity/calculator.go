@@ -21,16 +21,16 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 	completeSets := math.Round(allowance.Float64() / sharesPerCompleteSet)
 
 	// Keep track of money made from selling complete sets
-	proceeds := 0.0
+	totalProceeds := 0.0
 
 	// Handles yesNo and scalar markets
 	if len(books) < 2 {
 		// Sell back as many of outcome[1] as possible
-		proceeds += books[0].TakeBids(completeSets, TakeOptions{})
+		totalProceeds += books[0].TakeBids(completeSets, TakeOptions{})
 		// Sell back as many of outcome[0] as possible
-		proceeds += books[0].TakeAsks(completeSets, TakeOptions{})
+		totalProceeds += books[0].TakeAsks(completeSets, TakeOptions{})
 
-		return proceeds / allowance.Float64()
+		return totalProceeds / allowance.Float64()
 	}
 
 	// Handle categorical markets
@@ -70,20 +70,20 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		}
 
 		// Execute most profitable strategy
-		proceedsFromShares := 0.0
+		proceedsFromSale := 0.0
 
 		if maxProceedsIndex == len(books) {
 			for i := 0; i < len(books); i++ {
-				proceedsFromShares += books[i].TakeBids(sharesPerCompleteSet, TakeOptions{})
+				proceedsFromSale += books[i].TakeBids(sharesPerCompleteSet, TakeOptions{})
 			}
 		} else {
-			proceedsFromShares += books[maxProceedsIndex].TakeBids(sharesPerCompleteSet, TakeOptions{})
-			proceedsFromShares += books[maxProceedsIndex].TakeAsks(sharesPerCompleteSet, TakeOptions{})
+			proceedsFromSale += books[maxProceedsIndex].TakeBids(sharesPerCompleteSet, TakeOptions{})
+			proceedsFromSale += books[maxProceedsIndex].TakeAsks(sharesPerCompleteSet, TakeOptions{})
 		}
 
-		proceeds += proceedsFromShares
+		totalProceeds += proceedsFromSale
 		completeSets -= sharesPerCompleteSet
 	}
 
-	return proceeds / allowance.Float64()
+	return totalProceeds / allowance.Float64()
 }
