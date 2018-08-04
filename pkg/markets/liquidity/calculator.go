@@ -23,7 +23,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 	// Keep track of money made from selling complete sets
 	proceeds := 0.0
 
-	// Handles yesNo and scalar
+	// Handles yesNo and scalar markets
 	if len(books) < 2 {
 		// Sell back as many of outcome[1] as possible
 		proceeds += books[0].TakeBids(completeSets, TakeOptions{})
@@ -33,7 +33,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		return proceeds / allowance.Float64()
 	}
 
-	// Handle categorical markets with greater than two outcomes
+	// Handle categorical markets
 	for completeSets > 0 {
 		// Since there are len(outcomes) + 1 different ways to sell the shares back into the market
 		// try them each to observe their profitability.
