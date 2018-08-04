@@ -23,7 +23,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 	// Keep track of money made from selling complete sets
 	proceeds := 0.0
 
-	// Handles yesNo, scalar, and categorical markets with one order book
+	// Handles yesNo and scalar
 	if len(books) < 2 {
 		// Sell back as many of outcome[1] as possible
 		proceeds += books[0].TakeBids(completeSets, TakeOptions{})
