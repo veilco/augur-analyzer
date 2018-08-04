@@ -5,7 +5,6 @@ import (
 )
 
 type OutcomeOrderBook interface {
-	DeepClone() OutcomeOrderBook
 	TakeBids(maxSharesToTake float64, options TakeOptions) (proceeds float64)
 	TakeAsks(maxSharesToTake float64, options TakeOptions) (proceeds float64)
 }
