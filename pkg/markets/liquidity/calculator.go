@@ -71,7 +71,6 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 
 		// Execute most profitable strategy
 		proceedsFromSale := 0.0
-
 		if maxProceedsIndex == len(books) {
 			for i := 0; i < len(books); i++ {
 				proceedsFromSale += books[i].TakeBids(sharesPerCompleteSet, TakeOptions{})
