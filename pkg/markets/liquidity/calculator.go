@@ -10,7 +10,6 @@ func NewCalculator() Calculator {
 	return &calculator{}
 }
 
-// Assumption: 1.0 complete sets of shares is purchased from system for 1.0 currency units
 // Allowance needs to be in the same denomination that the orders are priced in
 func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, market MarketData, books []OutcomeOrderBook) float64 {
 	// No rounding
