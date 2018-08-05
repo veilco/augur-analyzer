@@ -38,7 +38,6 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		// estimatedProceeds[i] is the proceeds from selling complete sets into the outcomes[i] order book.
 		// estiamtedProceeds[len(outcomes)] is the proceeds from selling each share individually into their respective order books
 		estimatedProceeds := make([]float64, len(books)+1)
-
 		for i := 0; i < len(books); i++ {
 			estimatedProceeds[len(books)] += books[i].CloseLongFillOnly(sharesPerCompleteSet, true)
 			estimatedProceeds[i] += books[i].CloseLongFillOnly(sharesPerCompleteSet, true)
