@@ -104,13 +104,7 @@ func (w *Watcher) process() error {
 		marketAddressesUnfiltered := getMarketsResponse.MarketAddresses
 
 		// Filter out blacklist here
-		marketAddresses := []string{
-		// "0x55e30c27c4a509b85cc80874f3899b1970db9a97",
-		// "0xedb0998e366902170b03467739bf6a41256388c1",
-		// "0xb54858a2dd1d4ef86e2c3ecf2a99d60d236fb1c2",
-		// "0x616c6fde94e8e6b77084aedb174aeacb3c1e3fd8",
-		// "0x5326bc5c4773fe784816057d429f584100a3ac41",
-		}
+		marketAddresses := []string{}
 		for _, address := range marketAddressesUnfiltered {
 			if _, ok := blacklist[address]; !ok {
 				marketAddresses = append(marketAddresses, address)
