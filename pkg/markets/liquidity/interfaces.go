@@ -6,14 +6,15 @@ import (
 
 type OutcomeOrderBook interface {
 	DeepClone() OutcomeOrderBook
-	TakeBids(maxSharesToTake float64, options TakeOptions) (proceeds float64)
-	TakeAsks(maxSharesToTake float64, options TakeOptions) (proceeds float64)
+	CloseLongFillOnly(shares float64, dryRun bool) (proceeds float64)
+	CloseShortFillOnly(shares float64, dryRun bool) (proceeds float64)
 }
 
 type Calculator interface {
-	GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, outcomes []OutcomeOrderBook) (retentionRatio float64)
+	GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, market MarketData, outcomes []OutcomeOrderBook) (retentionRatio float64)
 }
 
-type TakeOptions struct {
-	DryRun bool
+type MarketData struct {
+	MinPrice float64
+	MaxPrice float64
 }

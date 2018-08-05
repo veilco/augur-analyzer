@@ -1,6 +1,8 @@
 package liquidity
 
-import "github.com/stateshape/augur-analyzer/pkg/proto/markets"
+import (
+	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
+)
 
 type outcomeOrderBook struct {
 	Bids []*markets.LiquidityAtPrice
@@ -50,40 +52,54 @@ func (oob *outcomeOrderBook) DeepClone() OutcomeOrderBook {
 	}
 }
 
-func (oob *outcomeOrderBook) TakeBids(maxSharesToTake float64, opts TakeOptions) (proceeds float64) {
-	bids, proceeds := oob.takeBest(oob.Bids, maxSharesToTake, opts)
-	if !opts.DryRun {
+func (oob *outcomeOrderBook) CloseLongFillOnly(shares float64, dryRun bool) float64 {
+	bids, proceeds := oob.TakeBest(oob.Bids, shares, dryRun, false)
+	if !dryRun {
 		oob.Bids = bids
 	}
 	return proceeds
 }
 
-func (oob *outcomeOrderBook) TakeAsks(maxSharesToTake float64, opts TakeOptions) (proceeds float64) {
-	asks, proceeds := oob.takeBest(oob.Asks, maxSharesToTake, opts)
-	if !opts.DryRun {
+func (oob *outcomeOrderBook) CloseShortFillOnly(shares float64, dryRun bool) float64 {
+	asks, proceeds := oob.TakeBest(oob.Asks, shares, dryRun, true)
+	if !dryRun {
 		oob.Asks = asks
 	}
 	return proceeds
 }
 
-func (oob *outcomeOrderBook) takeBest(liquidity []*markets.LiquidityAtPrice, maxSharesToTake float64, opts TakeOptions) ([]*markets.LiquidityAtPrice, float64) {
+func (oob *outcomeOrderBook) MaybeComplementPrice(price float32, closingShort bool) float64 {
+	// Complement
+	if closingShort {
+		return 1 - float64(price)
+	}
+	return float64(price)
+}
+
+func (oob *outcomeOrderBook) TakeBest(liquidity []*markets.LiquidityAtPrice, shares float64, dryRun bool, closingShort bool) ([]*markets.LiquidityAtPrice, float64) {
 	proceeds := 0.0
-	for maxSharesToTake > 0 {
+
+	for shares > 0 {
 		if len(liquidity) < 1 {
 			return liquidity, proceeds
 		}
-		if float64(liquidity[0].Amount) > maxSharesToTake {
-			if !opts.DryRun {
-				liquidity[0].Amount -= float32(maxSharesToTake)
+
+		if float64(liquidity[0].Amount) > shares {
+			price := oob.MaybeComplementPrice(liquidity[0].Price, closingShort)
+			proceeds += shares * price
+			if !dryRun {
+				liquidity[0].Amount -= float32(shares)
 			}
-			proceeds += maxSharesToTake * float64(liquidity[0].Price)
+			shares -= shares
 			return liquidity, proceeds
 		}
-		proceeds += float64(liquidity[0].Amount * liquidity[0].Price)
-		maxSharesToTake -= float64(liquidity[0].Amount)
-		if !opts.DryRun {
+
+		price := oob.MaybeComplementPrice(liquidity[0].Price, closingShort)
+		proceeds += float64(liquidity[0].Amount) * price
+		if !dryRun {
 			liquidity[0].Amount = 0
 		}
+		shares -= float64(liquidity[0].Amount)
 		liquidity = liquidity[1:]
 	}
 	return liquidity, proceeds

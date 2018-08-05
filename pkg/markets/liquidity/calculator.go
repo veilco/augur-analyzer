@@ -13,23 +13,20 @@ func NewCalculator() Calculator {
 }
 
 // Assumption: 1.0 complete sets of shares is purchased from system for 1.0 currency units
-func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, books []OutcomeOrderBook) float64 {
+func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, market MarketData, books []OutcomeOrderBook) float64 {
 	// Allowance needs to be in the same denomination that the orders are priced in
 
-	// Due to rounding, it might be that case that we spend up to `0.5 * sharesPerCompleteSet` more money
+	// Due to rounding, it might be that case that we spend up to `0.5 * market.MaxPrice` more money
 	// than the `allowance` parameter says.
-	completeSets := math.Round(allowance.Float64() / sharesPerCompleteSet)
+	completeSets := math.Round(allowance.Float64() / market.MaxPrice)
 
 	// Keep track of money made from selling complete sets
 	totalProceeds := 0.0
 
 	// Handles yesNo and scalar markets
 	if len(books) < 2 {
-		// Sell back as many of outcome[1] as possible
-		totalProceeds += books[0].TakeBids(completeSets, TakeOptions{})
-		// Sell back as many of outcome[0] as possible
-		totalProceeds += books[0].TakeAsks(completeSets, TakeOptions{})
-
+		totalProceeds += books[0].CloseLongFillOnly(completeSets, false)
+		totalProceeds += books[0].CloseShortFillOnly(completeSets, false)
 		return totalProceeds / allowance.Float64()
 	}
 
@@ -46,12 +43,10 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		// estiamtedProceeds[len(outcomes)] is the proceeds from selling each share individually into their respective order books
 		estimatedProceeds := make([]float64, len(books)+1)
 
-		dryRun := TakeOptions{DryRun: true}
 		for i := 0; i < len(books); i++ {
-			estimatedProceeds[len(books)] += books[i].TakeBids(sharesPerCompleteSet, dryRun)
-
-			estimatedProceeds[i] += books[i].TakeBids(sharesPerCompleteSet, dryRun)
-			estimatedProceeds[i] += books[i].TakeAsks(sharesPerCompleteSet, dryRun)
+			estimatedProceeds[len(books)] += books[i].CloseLongFillOnly(sharesPerCompleteSet, true)
+			estimatedProceeds[i] += books[i].CloseLongFillOnly(sharesPerCompleteSet, true)
+			estimatedProceeds[i] += books[i].CloseShortFillOnly(sharesPerCompleteSet, true)
 		}
 
 		// Determine strategy which yields the most proceeds
@@ -73,13 +68,12 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		proceedsFromSale := 0.0
 		if maxProceedsIndex == len(books) {
 			for i := 0; i < len(books); i++ {
-				proceedsFromSale += books[i].TakeBids(sharesPerCompleteSet, TakeOptions{})
+				proceedsFromSale += books[i].CloseLongFillOnly(sharesPerCompleteSet, false)
 			}
 		} else {
-			proceedsFromSale += books[maxProceedsIndex].TakeBids(sharesPerCompleteSet, TakeOptions{})
-			proceedsFromSale += books[maxProceedsIndex].TakeAsks(sharesPerCompleteSet, TakeOptions{})
+			proceedsFromSale += books[maxProceedsIndex].CloseLongFillOnly(sharesPerCompleteSet, false)
+			proceedsFromSale += books[maxProceedsIndex].CloseShortFillOnly(sharesPerCompleteSet, false)
 		}
-
 		totalProceeds += proceedsFromSale
 		completeSets -= sharesPerCompleteSet
 	}

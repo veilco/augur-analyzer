@@ -45,6 +45,7 @@ func DebugMarkets(inputMarketsData *MarketsData, outputMarketsData []*markets.Ma
 	}
 
 	for mid, _ := range mids {
+		logrus.WithField("marketId", mid).Warnf("--- Market Debug Information ---")
 		inputMarketData, ok := inputMarketsData.ByMarketID[mid]
 		if !ok {
 			logrus.WithField("marketId", mid).Warnf("Input market data no found for market while debugging")
@@ -65,12 +66,16 @@ func printInputMarketData(id string, data *MarketData) {
 	logrus.WithField("marketId", id).Warnf("Input data for market")
 
 	if data.Info != nil {
+		logrus.WithField("marketId", id).Warnf("Market Type: %s", data.Info.MarketType)
 		logrus.WithField("marketId", id).Warnf("Outstanding Shares: %s", data.Info.OutstandingShares)
 		logrus.WithField("marketId", id).Warnf("Category: %s", data.Info.Category)
 		logrus.WithField("marketId", id).Warnf("Description: %s", data.Info.Description)
 		logrus.WithField("marketId", id).Warnf("Resolution Source: %s", data.Info.ResolutionSource)
 		logrus.WithField("marketId", id).Warnf("Num Ticks: %s", data.Info.NumTicks)
 		logrus.WithField("marketId", id).Warnf("Tick Size: %s", data.Info.TickSize)
+		logrus.WithField("marketId", id).Warnf("Min Price: %s", data.Info.MinPrice)
+		logrus.WithField("marketId", id).Warnf("Max Price: %s", data.Info.MaxPrice)
+		logrus.WithField("marketId", id).Warnf("Cumulative Scale: %s", data.Info.CumulativeScale)
 		for _, outcome := range data.Info.Outcomes {
 			logrus.WithFields(logrus.Fields{
 				"marketId":           id,
@@ -170,6 +175,38 @@ func printOutputMarketData(data *markets.Market) {
 				"amount":    liquidity.Amount,
 				"price":     liquidity.Price,
 			}).Warnf("Best ask for market outcome")
+		}
+	}
+
+	// Liquidity at Prices
+	if data.Bids == nil || len(data.Bids) == 0 {
+		logrus.WithField("marketId", data.Id).Warnf("Best bids for market is nil")
+	} else {
+		for outcomeID, list := range data.Bids {
+			for i, liquidity := range list.LiquidityAtPrice {
+				logrus.WithFields(logrus.Fields{
+					"index":     i,
+					"marketId":  data.Id,
+					"outcomeId": outcomeID,
+					"amount":    liquidity.Amount,
+					"price":     liquidity.Price,
+				}).Warnf("Bid liquidity")
+			}
+		}
+	}
+	if data.Asks == nil || len(data.Asks) == 0 {
+		logrus.WithField("marketId", data.Id).Warnf("Best asks for market is nil")
+	} else {
+		for outcomeID, list := range data.Asks {
+			for i, liquidity := range list.LiquidityAtPrice {
+				logrus.WithFields(logrus.Fields{
+					"index":     i,
+					"marketId":  data.Id,
+					"outcomeId": outcomeID,
+					"amount":    liquidity.Amount,
+					"price":     liquidity.Price,
+				}).Warnf("Ask liquidity")
+			}
 		}
 	}
 

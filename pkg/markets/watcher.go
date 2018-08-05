@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -105,7 +104,13 @@ func (w *Watcher) process() error {
 		marketAddressesUnfiltered := getMarketsResponse.MarketAddresses
 
 		// Filter out blacklist here
-		marketAddresses := []string{}
+		marketAddresses := []string{
+		// "0x55e30c27c4a509b85cc80874f3899b1970db9a97",
+		// "0xedb0998e366902170b03467739bf6a41256388c1",
+		// "0xb54858a2dd1d4ef86e2c3ecf2a99d60d236fb1c2",
+		// "0x616c6fde94e8e6b77084aedb174aeacb3c1e3fd8",
+		// "0x5326bc5c4773fe784816057d429f584100a3ac41",
+		}
 		for _, address := range marketAddressesUnfiltered {
 			if _, ok := blacklist[address]; !ok {
 				marketAddresses = append(marketAddresses, address)
@@ -139,11 +144,6 @@ func (w *Watcher) process() error {
 			}
 			m = append(m, market)
 		}
-
-		// Order the markets from biggest to smallest
-		sort.Slice(m, func(i, j int) bool {
-			return m[i].MarketCapitalization.Eth > m[j].MarketCapitalization.Eth
-		})
 
 		summary := &markets.MarketsSummary{
 			Block:                      header.Number.Uint64(),
@@ -316,44 +316,52 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 		return nil, err
 	}
 
+	minPrice, err := strconv.ParseFloat(md.Info.MinPrice, 64)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to parse market min price")
+		return nil, err
+	}
+	maxPrice, err := strconv.ParseFloat(md.Info.MaxPrice, 64)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to parse market max price")
+		return nil, err
+	}
+
 	liquidityMetrics := &markets.LiquidityMetrics{
 		RetentionRatioByMillietherTranche: map[uint64]float32{},
 	}
 	// Construct the order books for liquidity calculations
-	books := []liquidity.OutcomeOrderBook{}
-	for _, outcome := range md.Info.Outcomes {
-		asksList, ok := asksByOutcome[outcome.Id]
-		if !ok {
-			asksList = &markets.ListLiquidityAtPrice{
-				LiquidityAtPrice: []*markets.LiquidityAtPrice{},
-			}
-		}
-		bidsList, ok := bidsByOutcome[outcome.Id]
-		if !ok {
-			bidsList = &markets.ListLiquidityAtPrice{
-				LiquidityAtPrice: []*markets.LiquidityAtPrice{},
-			}
-		}
-		books = append(books, liquidity.NewOutcomeOrderBook(bidsList.LiquidityAtPrice, asksList.LiquidityAtPrice))
-	}
-	const completeSetSizeRatio = 0.1
+	books := getOutcomeOrderBooks(md.Info, bidsByOutcome, asksByOutcome)
 	for _, tranche := range liquidity.Tranches {
 		clones := []liquidity.OutcomeOrderBook{}
 		for _, book := range books {
 			clones = append(clones, book.DeepClone())
 		}
 		// Determine shares per complete set
-		sharesPerCompleteSet := tranche.Ether().Float64() * completeSetSizeRatio
+		const sharesPerCompleteSet = 0.01
 
 		// Ensure the allowance is in the correct denomination
 		allowance := tranche.Ether()
 
-		retentionRatio := w.LiquidityCalculator.GetLiquidityRetentionRatio(sharesPerCompleteSet, allowance, clones)
-		liquidityMetrics.RetentionRatioByMillietherTranche[tranche.Uint64()] = float32(retentionRatio)
+		rr := w.LiquidityCalculator.GetLiquidityRetentionRatio(
+			sharesPerCompleteSet,
+			allowance,
+			liquidity.MarketData{
+				MinPrice: minPrice,
+				MaxPrice: maxPrice,
+			},
+			clones,
+		)
+		liquidityMetrics.RetentionRatioByMillietherTranche[tranche.Uint64()] = float32(rr)
 	}
 
 	_, featured := featuredlist[md.Info.Id]
 
+	// Construct market data
 	return &markets.Market{
 		Id:                   md.Info.Id,
 		MarketType:           marketType,
@@ -399,6 +407,45 @@ func translateMarketInfoToMarketCapitalization(info *augur.MarketInfo, ethusd, b
 		Usd: float32(outstandingShares * ethusd),
 		Btc: float32(outstandingShares / btceth),
 	}, nil
+}
+
+func getOutcomeOrderBooks(info *augur.MarketInfo, bids, asks map[uint64]*markets.ListLiquidityAtPrice) []liquidity.OutcomeOrderBook {
+	books := []liquidity.OutcomeOrderBook{}
+
+	// Helper
+	getBidAskLists := func(outcomeID uint64, bidsByOutcome, asksByOutcome map[uint64]*markets.ListLiquidityAtPrice) ([]*markets.LiquidityAtPrice, []*markets.LiquidityAtPrice) {
+		bidsList, ok := bidsByOutcome[outcomeID]
+		if !ok {
+			bidsList = &markets.ListLiquidityAtPrice{
+				LiquidityAtPrice: []*markets.LiquidityAtPrice{},
+			}
+		}
+		asksList, ok := asksByOutcome[outcomeID]
+		if !ok {
+			asksList = &markets.ListLiquidityAtPrice{
+				LiquidityAtPrice: []*markets.LiquidityAtPrice{},
+			}
+		}
+		return bidsList.LiquidityAtPrice, asksList.LiquidityAtPrice
+	}
+
+	// Construct the OutcomeOrderBook based on market type
+	switch strings.ToLower(info.MarketType) {
+	case "yesno", "scalar":
+		for _, outcome := range info.Outcomes {
+			// Create only the OutcomeOrderBook for the yes & upper outcomes
+			if outcome.Id == 1 {
+				book := liquidity.NewOutcomeOrderBook(getBidAskLists(outcome.Id, bids, asks))
+				books = append(books, book)
+			}
+		}
+	default: // "categorical"
+		for _, outcome := range info.Outcomes {
+			book := liquidity.NewOutcomeOrderBook(getBidAskLists(outcome.Id, bids, asks))
+			books = append(books, book)
+		}
+	}
+	return books
 }
 
 func getMarketType(info *augur.MarketInfo) (markets.MarketType, error) {
