@@ -1,8 +1,6 @@
 package liquidity
 
 import (
-	"math"
-
 	"github.com/stateshape/augur-analyzer/pkg/currency"
 )
 
@@ -13,12 +11,10 @@ func NewCalculator() Calculator {
 }
 
 // Assumption: 1.0 complete sets of shares is purchased from system for 1.0 currency units
+// Allowance needs to be in the same denomination that the orders are priced in
 func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, market MarketData, books []OutcomeOrderBook) float64 {
-	// Allowance needs to be in the same denomination that the orders are priced in
-
-	// Due to rounding, it might be that case that we spend up to `0.5 * market.MaxPrice` more money
-	// than the `allowance` parameter says.
-	completeSets := math.Round(allowance.Float64() / market.MaxPrice)
+	// No rounding
+	completeSets := allowance.Float64() / market.MaxPrice
 
 	// Keep track of money made from selling complete sets
 	totalProceeds := 0.0

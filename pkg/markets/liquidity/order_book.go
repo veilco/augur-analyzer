@@ -80,6 +80,7 @@ func (oob *outcomeOrderBook) TakeBest(liquidity []*markets.LiquidityAtPrice, sha
 	proceeds := 0.0
 
 	for shares > 0 {
+		// fmt.Printf("Share: %f\n", shares)
 		if len(liquidity) < 1 {
 			return liquidity, proceeds
 		}
@@ -96,10 +97,10 @@ func (oob *outcomeOrderBook) TakeBest(liquidity []*markets.LiquidityAtPrice, sha
 
 		price := oob.MaybeComplementPrice(liquidity[0].Price, closingShort)
 		proceeds += float64(liquidity[0].Amount) * price
+		shares -= float64(liquidity[0].Amount)
 		if !dryRun {
 			liquidity[0].Amount = 0
 		}
-		shares -= float64(liquidity[0].Amount)
 		liquidity = liquidity[1:]
 	}
 	return liquidity, proceeds
