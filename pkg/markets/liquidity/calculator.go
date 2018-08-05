@@ -13,7 +13,7 @@ func NewCalculator() Calculator {
 // Allowance needs to be in the same denomination that the orders are priced in
 func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, market MarketData, books []OutcomeOrderBook) float64 {
 	// No rounding
-	completeSets := allowance.Float64() / market.MaxPrice
+	completeSets := allowance.Float64() / (market.MaxPrice - market.MinPrice)
 
 	// Keep track of money made from selling complete sets
 	totalProceeds := 0.0
