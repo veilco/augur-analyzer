@@ -6,8 +6,8 @@ import (
 
 type OutcomeOrderBook interface {
 	DeepClone() OutcomeOrderBook
-	CloseLongFillOnly(shares float64, dryRun bool) (proceeds float64)
-	CloseShortFillOnly(shares float64, dryRun bool) (proceeds float64)
+	CloseLongFillOnly(shares float64, market MarketData, dryRun bool) (proceeds float64)
+	CloseShortFillOnly(shares float64, market MarketData, dryRun bool) (proceeds float64)
 }
 
 type Calculator interface {

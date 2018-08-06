@@ -52,41 +52,40 @@ func (oob *outcomeOrderBook) DeepClone() OutcomeOrderBook {
 	}
 }
 
-func (oob *outcomeOrderBook) CloseLongFillOnly(shares float64, dryRun bool) float64 {
-	bids, proceeds := oob.TakeBest(oob.Bids, shares, dryRun, false)
+func (oob *outcomeOrderBook) CloseLongFillOnly(shares float64, market MarketData, dryRun bool) float64 {
+	bids, proceeds := oob.TakeBest(oob.Bids, shares, market, dryRun, false)
 	if !dryRun {
 		oob.Bids = bids
 	}
 	return proceeds
 }
 
-func (oob *outcomeOrderBook) CloseShortFillOnly(shares float64, dryRun bool) float64 {
-	asks, proceeds := oob.TakeBest(oob.Asks, shares, dryRun, true)
+func (oob *outcomeOrderBook) CloseShortFillOnly(shares float64, market MarketData, dryRun bool) float64 {
+	asks, proceeds := oob.TakeBest(oob.Asks, shares, market, dryRun, true)
 	if !dryRun {
 		oob.Asks = asks
 	}
 	return proceeds
 }
 
-func (oob *outcomeOrderBook) MaybeComplementPrice(price float32, closingShort bool) float64 {
+func (oob *outcomeOrderBook) NormalizeComplementPrice(price float32, market MarketData, closingShort bool) float64 {
 	// Complement
 	if closingShort {
-		return 1 - float64(price)
+		return market.MaxPrice - float64(price)
 	}
-	return float64(price)
+	return float64(price) - market.MinPrice
 }
 
-func (oob *outcomeOrderBook) TakeBest(liquidity []*markets.LiquidityAtPrice, shares float64, dryRun bool, closingShort bool) ([]*markets.LiquidityAtPrice, float64) {
+func (oob *outcomeOrderBook) TakeBest(liquidity []*markets.LiquidityAtPrice, shares float64, market MarketData, dryRun bool, closingShort bool) ([]*markets.LiquidityAtPrice, float64) {
 	proceeds := 0.0
 
 	for shares > 0 {
-		// fmt.Printf("Share: %f\n", shares)
 		if len(liquidity) < 1 {
 			return liquidity, proceeds
 		}
 
 		if float64(liquidity[0].Amount) > shares {
-			price := oob.MaybeComplementPrice(liquidity[0].Price, closingShort)
+			price := oob.NormalizeComplementPrice(liquidity[0].Price, market, closingShort)
 			proceeds += shares * price
 			if !dryRun {
 				liquidity[0].Amount -= float32(shares)
@@ -95,7 +94,7 @@ func (oob *outcomeOrderBook) TakeBest(liquidity []*markets.LiquidityAtPrice, sha
 			return liquidity, proceeds
 		}
 
-		price := oob.MaybeComplementPrice(liquidity[0].Price, closingShort)
+		price := oob.NormalizeComplementPrice(liquidity[0].Price, market, closingShort)
 		proceeds += float64(liquidity[0].Amount) * price
 		shares -= float64(liquidity[0].Amount)
 		if !dryRun {

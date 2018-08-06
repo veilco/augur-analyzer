@@ -22,8 +22,8 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 
 	// Handles yesNo and scalar markets
 	if len(books) < 2 {
-		totalProceeds += books[0].CloseLongFillOnly(completeSets, false)
-		totalProceeds += books[0].CloseShortFillOnly(completeSets, false)
+		totalProceeds += books[0].CloseLongFillOnly(completeSets, market, false)
+		totalProceeds += books[0].CloseShortFillOnly(completeSets, market, false)
 		return totalProceeds / allowance.Float64()
 	}
 
@@ -41,9 +41,9 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		// estiamtedProceeds[len(outcomes)] is the proceeds from selling each share individually into their respective order books
 		estimatedProceeds := make([]float64, len(books)+1)
 		for i := 0; i < len(books); i++ {
-			estimatedProceeds[len(books)] += books[i].CloseLongFillOnly(sharesForSale, true)
-			estimatedProceeds[i] += books[i].CloseLongFillOnly(sharesForSale, true)
-			estimatedProceeds[i] += books[i].CloseShortFillOnly(sharesForSale, true)
+			estimatedProceeds[len(books)] += books[i].CloseLongFillOnly(sharesForSale, market, true)
+			estimatedProceeds[i] += books[i].CloseLongFillOnly(sharesForSale, market, true)
+			estimatedProceeds[i] += books[i].CloseShortFillOnly(sharesForSale, market, true)
 		}
 
 		// Determine strategy which yields the most proceeds
@@ -65,11 +65,11 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		proceedsFromSale := 0.0
 		if maxProceedsIndex == len(books) {
 			for i := 0; i < len(books); i++ {
-				proceedsFromSale += books[i].CloseLongFillOnly(sharesForSale, false)
+				proceedsFromSale += books[i].CloseLongFillOnly(sharesForSale, market, false)
 			}
 		} else {
-			proceedsFromSale += books[maxProceedsIndex].CloseLongFillOnly(sharesForSale, false)
-			proceedsFromSale += books[maxProceedsIndex].CloseShortFillOnly(sharesForSale, false)
+			proceedsFromSale += books[maxProceedsIndex].CloseLongFillOnly(sharesForSale, market, false)
+			proceedsFromSale += books[maxProceedsIndex].CloseShortFillOnly(sharesForSale, market, false)
 		}
 		totalProceeds += proceedsFromSale
 		completeSets -= sharesForSale
