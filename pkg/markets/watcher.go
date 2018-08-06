@@ -336,13 +336,13 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 			clones = append(clones, book.DeepClone())
 		}
 		// Determine shares per complete set
-		const sharesPerCompleteSet = 0.01
+		const sellingIncrement = 0.01
 
 		// Ensure the allowance is in the correct denomination
 		allowance := tranche.Ether()
 
 		rr := w.LiquidityCalculator.GetLiquidityRetentionRatio(
-			sharesPerCompleteSet,
+			sellingIncrement,
 			allowance,
 			liquidity.MarketData{
 				MinPrice: minPrice,

@@ -13,7 +13,7 @@ func NewCalculator() Calculator {
 }
 
 // Allowance needs to be in the same denomination that the orders are priced in
-func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, market MarketData, books []OutcomeOrderBook) float64 {
+func (c *calculator) GetLiquidityRetentionRatio(sellingIncrement float64, allowance currency.Ether, market MarketData, books []OutcomeOrderBook) float64 {
 	// No rounding
 	completeSets := allowance.Float64() / (market.MaxPrice - market.MinPrice)
 
@@ -29,7 +29,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 
 	// Handle categorical markets
 	for completeSets > 0 {
-		sharesForSale := math.Min(sharesPerCompleteSet, completeSets)
+		sharesForSale := math.Min(sellingIncrement, completeSets)
 		// Since there are len(outcomes) + 1 different ways to sell the shares back into the market
 		// try them each to observe their profitability.
 

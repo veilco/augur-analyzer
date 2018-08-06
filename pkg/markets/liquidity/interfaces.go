@@ -11,7 +11,7 @@ type OutcomeOrderBook interface {
 }
 
 type Calculator interface {
-	GetLiquidityRetentionRatio(sharesPerCompleteSet float64, allowance currency.Ether, market MarketData, outcomes []OutcomeOrderBook) (retentionRatio float64)
+	GetLiquidityRetentionRatio(sellingIncrement float64, allowance currency.Ether, market MarketData, outcomes []OutcomeOrderBook) (retentionRatio float64)
 }
 
 type MarketData struct {
