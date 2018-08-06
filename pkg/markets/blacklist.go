@@ -10,4 +10,5 @@ var blacklist = map[string]struct{}{
 	"0x6307c571135429576c8480acf2659780b898ab58": struct{}{},
 	"0x02d59d318167d6aab9be0ece52d71474d2990f5e": struct{}{},
 	"0x2f2f1beeedfa69617e1c35b8efadd7c22bab2ceb": struct{}{},
+	"0x5e21152714360c7c050f44ac5f4cd1321272dc77": struct{}{},
 }
