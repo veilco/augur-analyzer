@@ -149,6 +149,12 @@
   revision = "bb74f1db0675b241733089d5a1faa5dd8b0ef57b"
 
 [[projects]]
+  name = "github.com/pborman/uuid"
+  packages = ["."]
+  revision = "e790cca94e6cc75c7064b1332e63811d4aae1a53"
+  version = "v1.1"
+
+[[projects]]
   name = "github.com/pelletier/go-toml"
   packages = ["."]
   revision = "c01d1270ff3e442a8a57cddc1c92dc1138598194"
@@ -429,6 +435,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0b6adfe4f7bac64d78467de572e1f777a3963028ffb0131116f582975747d18e"
+  inputs-digest = "efacfc3dc0c84ec08062465de3775422638107ce5ea87d39e8d0c9e922d4f12e"
   solver-name = "gps-cdcl"
   solver-version = 1
