@@ -65,7 +65,7 @@ func convertToOutcomes(ois []*augur.OutcomeInfo) ([]*Outcome, error) {
 	return outcomes, nil
 }
 
-func getBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
+func GetBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
 	bestBidsByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
@@ -127,7 +127,7 @@ func getBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome
 	return bestBidsByOutcome, nil
 }
 
-func getAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
+func GetAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
 	bestAsksByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
