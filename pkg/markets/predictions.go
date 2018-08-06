@@ -65,9 +65,7 @@ func convertToOutcomes(ois []*augur.OutcomeInfo) ([]*Outcome, error) {
 	return outcomes, nil
 }
 
-// For each outcome we want to find the highest buy orders and
-// the lowest sell orders
-func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
+func getBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
 	bestBidsByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {
@@ -129,7 +127,7 @@ func getBestBids(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOut
 	return bestBidsByOutcome, nil
 }
 
-func getBestAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
+func getAsks(orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome) (map[uint64]*markets.ListLiquidityAtPrice, error) {
 	bestAsksByOutcome := map[uint64]*markets.ListLiquidityAtPrice{}
 
 	if orders == nil || orders.OrdersByOrderIdByOrderTypeByOutcome == nil {

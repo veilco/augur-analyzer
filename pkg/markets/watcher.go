@@ -256,7 +256,7 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 		return nil, err
 	}
 
-	bidsByOutcome, err := getBestBids(md.Orders)
+	bidsByOutcome, err := getBids(md.Orders)
 	if err != nil {
 		logrus.WithError(err).
 			WithField("marketInfo", *md.Info).
@@ -271,7 +271,7 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 		bestBids[outcome] = list.LiquidityAtPrice[0]
 	}
 
-	asksByOutcome, err := getBestAsks(md.Orders)
+	asksByOutcome, err := getAsks(md.Orders)
 	if err != nil {
 		logrus.WithError(err).
 			WithField("marketInfo", *md.Info).
