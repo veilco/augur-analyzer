@@ -10,19 +10,19 @@ type outcomeOrderBook struct {
 }
 
 func NewOutcomeOrderBook(bids []*markets.LiquidityAtPrice, asks []*markets.LiquidityAtPrice) OutcomeOrderBook {
-	bidsCopy := []*markets.LiquidityAtPrice{}
-	asksCopy := []*markets.LiquidityAtPrice{}
-	for _, bid := range bids {
-		bidsCopy = append(bidsCopy, &markets.LiquidityAtPrice{
+	bidsCopy := make([]*markets.LiquidityAtPrice, len(bids))
+	asksCopy := make([]*markets.LiquidityAtPrice, len(asks))
+	for i, bid := range bids {
+		bidsCopy[i] = &markets.LiquidityAtPrice{
 			Price:  bid.Price,
 			Amount: bid.Amount,
-		})
+		}
 	}
-	for _, ask := range asks {
-		asksCopy = append(asksCopy, &markets.LiquidityAtPrice{
+	for i, ask := range asks {
+		asksCopy[i] = &markets.LiquidityAtPrice{
 			Price:  ask.Price,
 			Amount: ask.Amount,
-		})
+		}
 	}
 
 	return &outcomeOrderBook{
@@ -32,19 +32,19 @@ func NewOutcomeOrderBook(bids []*markets.LiquidityAtPrice, asks []*markets.Liqui
 }
 
 func (oob *outcomeOrderBook) DeepClone() OutcomeOrderBook {
-	bidsCopy := []*markets.LiquidityAtPrice{}
-	asksCopy := []*markets.LiquidityAtPrice{}
-	for _, bid := range oob.Bids {
-		bidsCopy = append(bidsCopy, &markets.LiquidityAtPrice{
+	bidsCopy := make([]*markets.LiquidityAtPrice, len(oob.Bids))
+	asksCopy := make([]*markets.LiquidityAtPrice, len(oob.Asks))
+	for i, bid := range oob.Bids {
+		bidsCopy[i] = &markets.LiquidityAtPrice{
 			Price:  bid.Price,
 			Amount: bid.Amount,
-		})
+		}
 	}
-	for _, ask := range oob.Asks {
-		asksCopy = append(asksCopy, &markets.LiquidityAtPrice{
+	for i, ask := range oob.Asks {
+		asksCopy[i] = &markets.LiquidityAtPrice{
 			Price:  ask.Price,
 			Amount: ask.Amount,
-		})
+		}
 	}
 	return &outcomeOrderBook{
 		Bids: bidsCopy,
