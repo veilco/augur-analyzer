@@ -55,6 +55,73 @@ func TestGetBids(t *testing.T) {
 				},
 			},
 		},
+		{
+			Name: "2",
+			Orders: &augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome{
+				OrdersByOrderIdByOrderTypeByOutcome: map[uint64]*augur.GetOrdersResponse_OrdersByOrderIdByOrderType{
+					1: &augur.GetOrdersResponse_OrdersByOrderIdByOrderType{
+						BuyOrdersByOrderId: &augur.GetOrdersResponse_OrdersByOrderId{
+							OrdersByOrderId: map[string]*augur.Order{
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".9",
+									Amount:          "10",
+									OrderState:      augur.OrderState_OPEN,
+								},
+								uuid.New(): &augur.Order{
+									Price:      ".9",
+									Amount:     "10",
+									OrderState: augur.OrderState_OPEN,
+								},
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".89",
+									Amount:          "3",
+									OrderState:      augur.OrderState_OPEN,
+								},
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".89",
+									Amount:          "7",
+									OrderState:      augur.OrderState_CANCELED,
+								},
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".88",
+									Amount:          "30",
+									OrderState:      augur.OrderState_OPEN,
+								},
+							},
+						},
+						SellOrdersByOrderId: &augur.GetOrdersResponse_OrdersByOrderId{
+							OrdersByOrderId: map[string]*augur.Order{},
+						},
+					},
+				},
+			},
+			ExpectedBids: map[uint64]*protomarkets.ListLiquidityAtPrice{
+				1: &protomarkets.ListLiquidityAtPrice{
+					LiquidityAtPrice: []*protomarkets.LiquidityAtPrice{
+						{
+							Price:  .9,
+							Amount: 20,
+						},
+						{
+							Price:  .89,
+							Amount: 3,
+						},
+						{
+							Price:  .88,
+							Amount: 30,
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, c := range cases {
@@ -76,5 +143,132 @@ func TestGetBids(t *testing.T) {
 }
 
 func TestGetAsks(t *testing.T) {
+	cases := []struct {
+		Name         string
+		Orders       *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome
+		ExpectedAsks map[uint64]*protomarkets.ListLiquidityAtPrice
+	}{
+		{
+			Name: "1",
+			Orders: &augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome{
+				OrdersByOrderIdByOrderTypeByOutcome: map[uint64]*augur.GetOrdersResponse_OrdersByOrderIdByOrderType{
+					1: &augur.GetOrdersResponse_OrdersByOrderIdByOrderType{
+						BuyOrdersByOrderId: &augur.GetOrdersResponse_OrdersByOrderId{
+							OrdersByOrderId: map[string]*augur.Order{},
+						},
+						SellOrdersByOrderId: &augur.GetOrdersResponse_OrdersByOrderId{
+							OrdersByOrderId: map[string]*augur.Order{
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".9",
+									Amount:          "10",
+									OrderState:      augur.OrderState_OPEN,
+								},
+								uuid.New(): &augur.Order{
+									Price:      ".9",
+									Amount:     "10",
+									OrderState: augur.OrderState_OPEN,
+								},
+							},
+						},
+					},
+				},
+			},
+			ExpectedAsks: map[uint64]*protomarkets.ListLiquidityAtPrice{
+				1: &protomarkets.ListLiquidityAtPrice{
+					LiquidityAtPrice: []*protomarkets.LiquidityAtPrice{
+						{
+							Price:  .9,
+							Amount: 20,
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: "2",
+			Orders: &augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome{
+				OrdersByOrderIdByOrderTypeByOutcome: map[uint64]*augur.GetOrdersResponse_OrdersByOrderIdByOrderType{
+					1: &augur.GetOrdersResponse_OrdersByOrderIdByOrderType{
+						BuyOrdersByOrderId: &augur.GetOrdersResponse_OrdersByOrderId{
+							OrdersByOrderId: map[string]*augur.Order{},
+						},
+						SellOrdersByOrderId: &augur.GetOrdersResponse_OrdersByOrderId{
+							OrdersByOrderId: map[string]*augur.Order{
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".9",
+									Amount:          "10",
+									OrderState:      augur.OrderState_OPEN,
+								},
+								uuid.New(): &augur.Order{
+									Price:      ".9",
+									Amount:     "10",
+									OrderState: augur.OrderState_OPEN,
+								},
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".89",
+									Amount:          "3",
+									OrderState:      augur.OrderState_OPEN,
+								},
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".89",
+									Amount:          "7",
+									OrderState:      augur.OrderState_CANCELED,
+								},
+								uuid.New(): &augur.Order{
+									OrderId:         uuid.New(),
+									TransactionHash: uuid.New(),
+									Price:           ".88",
+									Amount:          "30",
+									OrderState:      augur.OrderState_OPEN,
+								},
+							},
+						},
+					},
+				},
+			},
+			ExpectedAsks: map[uint64]*protomarkets.ListLiquidityAtPrice{
+				1: &protomarkets.ListLiquidityAtPrice{
+					LiquidityAtPrice: []*protomarkets.LiquidityAtPrice{
+						{
+							Price:  .88,
+							Amount: 30,
+						},
+						{
+							Price:  .89,
+							Amount: 3,
+						},
+						{
+							Price:  .9,
+							Amount: 20,
+						},
+					},
+				},
+			},
+		},
+	}
 
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			asks, err := markets.GetAsks(c.Orders)
+			assert.Nil(t, err)
+			assert.Equal(t, len(c.ExpectedAsks), len(asks))
+			for outcomeID, ll := range c.ExpectedAsks {
+				listliquidity, ok := asks[outcomeID]
+				assert.True(t, ok)
+				assert.Equal(t, len(listliquidity.LiquidityAtPrice), len(ll.LiquidityAtPrice))
+				for i := 0; i < len(ll.LiquidityAtPrice); i++ {
+					assert.Equal(t, listliquidity.LiquidityAtPrice[i].Price, ll.LiquidityAtPrice[i].Price)
+					assert.Equal(t, listliquidity.LiquidityAtPrice[i].Amount, ll.LiquidityAtPrice[i].Amount)
+				}
+			}
+		})
+	}
 }
