@@ -1,6 +1,8 @@
 package liquidity
 
 import (
+	"math"
+
 	"github.com/stateshape/augur-analyzer/pkg/currency"
 )
 
@@ -27,6 +29,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 
 	// Handle categorical markets
 	for completeSets > 0 {
+		sharesForSale := math.Min(sharesPerCompleteSet, completeSets)
 		// Since there are len(outcomes) + 1 different ways to sell the shares back into the market
 		// try them each to observe their profitability.
 
@@ -38,9 +41,9 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		// estiamtedProceeds[len(outcomes)] is the proceeds from selling each share individually into their respective order books
 		estimatedProceeds := make([]float64, len(books)+1)
 		for i := 0; i < len(books); i++ {
-			estimatedProceeds[len(books)] += books[i].CloseLongFillOnly(sharesPerCompleteSet, true)
-			estimatedProceeds[i] += books[i].CloseLongFillOnly(sharesPerCompleteSet, true)
-			estimatedProceeds[i] += books[i].CloseShortFillOnly(sharesPerCompleteSet, true)
+			estimatedProceeds[len(books)] += books[i].CloseLongFillOnly(sharesForSale, true)
+			estimatedProceeds[i] += books[i].CloseLongFillOnly(sharesForSale, true)
+			estimatedProceeds[i] += books[i].CloseShortFillOnly(sharesForSale, true)
 		}
 
 		// Determine strategy which yields the most proceeds
@@ -62,14 +65,14 @@ func (c *calculator) GetLiquidityRetentionRatio(sharesPerCompleteSet float64, al
 		proceedsFromSale := 0.0
 		if maxProceedsIndex == len(books) {
 			for i := 0; i < len(books); i++ {
-				proceedsFromSale += books[i].CloseLongFillOnly(sharesPerCompleteSet, false)
+				proceedsFromSale += books[i].CloseLongFillOnly(sharesForSale, false)
 			}
 		} else {
-			proceedsFromSale += books[maxProceedsIndex].CloseLongFillOnly(sharesPerCompleteSet, false)
-			proceedsFromSale += books[maxProceedsIndex].CloseShortFillOnly(sharesPerCompleteSet, false)
+			proceedsFromSale += books[maxProceedsIndex].CloseLongFillOnly(sharesForSale, false)
+			proceedsFromSale += books[maxProceedsIndex].CloseShortFillOnly(sharesForSale, false)
 		}
 		totalProceeds += proceedsFromSale
-		completeSets -= sharesPerCompleteSet
+		completeSets -= sharesForSale
 	}
 
 	return totalProceeds / allowance.Float64()
