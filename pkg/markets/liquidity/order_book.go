@@ -68,6 +68,7 @@ func (oob *outcomeOrderBook) CloseShortFillOnly(shares float64, market MarketDat
 	return proceeds
 }
 
+// NormalizeComplementPrice solves two problems: 1. when taking an Ask (closing a long), the price in order book isn't the actual proceeds for taker; the proceeds are MaxPrice-price; 2. when taking a Bid for a scalar, the price in order book isn't the actual proceeds for taker; it's price-MinPrice.
 func (oob *outcomeOrderBook) NormalizeComplementPrice(price float32, market MarketData, closingShort bool) float64 {
 	// Complement
 	if closingShort {

@@ -38,7 +38,7 @@ func (c *calculator) GetLiquidityRetentionRatio(sellingIncrement float64, allowa
 		//           sell the rest of the shares using the asks in the order book.
 
 		// estimatedProceeds[i] is the proceeds from selling complete sets into the outcomes[i] order book.
-		// estiamtedProceeds[len(outcomes)] is the proceeds from selling each share individually into their respective order books
+		// estimatedProceeds[len(outcomes)] is the proceeds from selling each share individually into their respective order books
 		estimatedProceeds := make([]float64, len(books)+1)
 		for i := 0; i < len(books); i++ {
 			estimatedProceeds[len(books)] += books[i].CloseLongFillOnly(sharesForSale, market, true)
@@ -50,7 +50,8 @@ func (c *calculator) GetLiquidityRetentionRatio(sellingIncrement float64, allowa
 		maxProceeds := 0.0
 		maxProceedsIndex := 0
 		for i := 0; i < len(estimatedProceeds); i++ {
-			if estimatedProceeds[i] > maxProceeds {
+			// If strategies are equally profitable we want to de-prioritize taking from each book (option 1 above), because intuitively taking from each book is asymmetric because it takes only bids, not asks. We already de-prioritize taking from each book because it's the last strategy in estimatedProceeds. However, because `estimatedProceeds[len(books)]` is accrued, it's subject to floating point drift, and so we use isMateriallyGreater() to ensure that we're only selecting last strategy if it's materially more profitable.
+			if isMateriallyGreater(estimatedProceeds[i], maxProceeds) {
 				maxProceeds = estimatedProceeds[i]
 				maxProceedsIndex = i
 			}
@@ -76,4 +77,9 @@ func (c *calculator) GetLiquidityRetentionRatio(sellingIncrement float64, allowa
 	}
 
 	return totalProceeds / allowance.Float64()
+}
+
+// isMateriallyGreater returns true if and only if `a` is materially greater than `b`. Ie. false if a < b or they are immaterially similar (for our purposes).
+func isMateriallyGreater(a, b float64) bool {
+	return (a - b) > 0.001
 }
