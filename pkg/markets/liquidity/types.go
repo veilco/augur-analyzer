@@ -5,5 +5,5 @@ import (
 )
 
 var (
-	Tranches = []currency.Milliether{10000, 50000, 250000}
+	Tranches = []currency.Milliether{1000, 10000, 50000, 250000}
 )
