@@ -393,15 +393,19 @@ func translateMarketInfoToMarketCapitalization(info *augur.MarketInfo, ethusd, b
 }
 
 func getMarketDataSources(id string) (*markets.MarketDataSources, error) {
-	intString := fmt.Sprintf("%x", id)
-	if len(intString) < 6 {
+	// Convert market ID hex to base 10 string
+	base10 := fmt.Sprintf("%x", id)
+	if len(base10) < 6 {
 		return nil, fmt.Errorf("Market ID provided to `getMarketDataSources` is invalid: %s", id)
 	}
-	suffixIntString := intString[(len(intString) - 6):]
-	int, err := strconv.Atoi(suffixIntString)
+
+	// Use the last 6 digits of the ID to bucketize the market
+	base10Suffix := base10[(len(base10) - 6):]
+	int, err := strconv.Atoi(base10Suffix)
 	if err != nil {
 		return nil, err
 	}
+
 	return &markets.MarketDataSources{
 		MarketDetailFileName: strconv.Itoa(int % 10),
 	}, nil
