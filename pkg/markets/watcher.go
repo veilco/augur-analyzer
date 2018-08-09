@@ -15,7 +15,6 @@ import (
 	"github.com/stateshape/augur-analyzer/pkg/proto/augur"
 	"github.com/stateshape/augur-analyzer/pkg/proto/markets"
 
-	"cloud.google.com/go/storage"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -51,10 +50,10 @@ type ExchangeRates struct {
 	BTCETH float64
 }
 
-func NewWatcher(pricingAPI pricing.PricingClient, web3API *ethclient.Client, augurAPI augur.MarketsApiClient, storageAPI *storage.Client) *Watcher {
+func NewWatcher(pricingAPI pricing.PricingClient, web3API *ethclient.Client, augurAPI augur.MarketsApiClient, objectUploader *gcloud.ObjectUploader) *Watcher {
 	return &Watcher{pricingAPI, web3API, augurAPI, &Writer{
-		Bucket:           viper.GetString(env.GCloudStorageBucket),
-		GCloudStorageAPI: storageAPI,
+		Bucket:         viper.GetString(env.GCloudStorageBucket),
+		ObjectUploader: objectUploader,
 	}, liquidity.NewCalculator()}
 }
 
@@ -181,36 +180,11 @@ func (w *Watcher) process() error {
 
 		go func() {
 			details := constructMarketDetails(m, marketsData)
-
-			// Write `gcloud.MaxIdleConnsPerHost` details at a time
-			// Create a channel of work channels, and load all of the work channels in it
-			workers := make(chan chan *markets.MarketDetail, gcloud.MaxIdleConnsPerHost)
-			for i := 0; i < gcloud.MaxIdleConnsPerHost; i++ {
-				// Create work channel and goroutine for each worker
-				worker := make(chan *markets.MarketDetail)
-				go func() {
-					for detail := range worker {
-						if err := w.Writer.WriteMarketDetail(detail); err != nil {
-							logrus.WithField("marketId", detail.MarketId).WithError(err).Errorf("Failed to write market detail to GCloud storage")
-						}
-						workers <- worker
-					}
-				}()
-				workers <- worker
+			for object, detail := range details {
+				if err := w.Writer.WriteMarketDetail(object, detail); err != nil {
+					logrus.WithError(err).Errorf("Failed to write market detail to GCloud storage")
+				}
 			}
-
-			// Assign work
-			for _, detail := range details {
-				// Get an available worker and send it work
-				<-workers <- detail
-			}
-
-			// Close all the worker channels
-			for i := 0; i < gcloud.MaxIdleConnsPerHost; i++ {
-				close(<-workers)
-			}
-			close(workers)
-
 			logrus.Infof("Successfully uploaded market detail objects for block #%s", header.Number.String())
 		}()
 
@@ -218,8 +192,8 @@ func (w *Watcher) process() error {
 	}
 }
 
-func constructMarketDetails(ms []*markets.Market, msd *MarketsData) []*markets.MarketDetail {
-	details := []*markets.MarketDetail{}
+func constructMarketDetails(ms []*markets.Market, msd *MarketsData) map[string]*markets.MarketDetailByMarketId {
+	details := map[string]*markets.MarketDetailByMarketId{}
 	for _, market := range ms {
 		detail := &markets.MarketDetail{
 			MarketId:      market.Id,
@@ -228,7 +202,13 @@ func constructMarketDetails(ms []*markets.Market, msd *MarketsData) []*markets.M
 		if md, ok := msd.ByMarketID[market.Id]; ok {
 			detail.MarketInfo = mapMarketInfo(md.Info)
 		}
-		details = append(details, detail)
+		filename := market.MarketDataSources.MarketDetailFileName
+		if _, ok := details[filename]; !ok {
+			details[filename] = &markets.MarketDetailByMarketId{
+				MarketDetailByMarketId: map[string]*markets.MarketDetail{},
+			}
+		}
+		details[filename].MarketDetailByMarketId[market.Id] = detail
 	}
 	return details
 }
@@ -310,6 +290,14 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 		return nil, err
 	}
 
+	marketDataSources, err := getMarketDataSources(md.Info.Id)
+	if err != nil {
+		logrus.WithError(err).
+			WithField("marketInfo", *md.Info).
+			Errorf("Failed to get market data sources")
+		return nil, err
+	}
+
 	minPrice, err := strconv.ParseFloat(md.Info.MinPrice, 64)
 	if err != nil {
 		logrus.WithError(err).
@@ -378,6 +366,7 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 		Bids:                 bidsByOutcome,
 		Asks:                 asksByOutcome,
 		LiquidityMetrics:     liquidityMetrics,
+		MarketDataSources:    marketDataSources,
 	}, nil
 
 }
@@ -400,6 +389,21 @@ func translateMarketInfoToMarketCapitalization(info *augur.MarketInfo, ethusd, b
 		Eth: float32(outstandingShares),
 		Usd: float32(outstandingShares * ethusd),
 		Btc: float32(outstandingShares / btceth),
+	}, nil
+}
+
+func getMarketDataSources(id string) (*markets.MarketDataSources, error) {
+	intString := fmt.Sprintf("%x", id)
+	if len(intString) < 6 {
+		return nil, fmt.Errorf("Market ID provided to `getMarketDataSources` is invalid: %s", id)
+	}
+	suffixIntString := intString[(len(intString) - 6):]
+	int, err := strconv.Atoi(suffixIntString)
+	if err != nil {
+		return nil, err
+	}
+	return &markets.MarketDataSources{
+		MarketDetailFileName: strconv.Itoa(int % 10),
 	}, nil
 }
 
