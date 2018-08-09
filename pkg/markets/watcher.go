@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stateshape/augur-analyzer/pkg/env"
@@ -179,12 +180,19 @@ func (w *Watcher) process() error {
 		}()
 
 		go func() {
+			wg := sync.WaitGroup{}
 			details := constructMarketDetails(m, marketsData)
-			for object, detail := range details {
-				if err := w.Writer.WriteMarketDetail(object, detail); err != nil {
-					logrus.WithError(err).Errorf("Failed to write market detail to GCloud storage")
-				}
+			for file, _ := range details {
+				object, detail := file, details[file]
+				wg.Add(1)
+				go func() {
+					if err := w.Writer.WriteMarketDetail(object, detail); err != nil {
+						logrus.WithError(err).Errorf("Failed to write market detail to GCloud storage")
+					}
+					wg.Done()
+				}()
 			}
+			wg.Wait()
 			logrus.Infof("Successfully uploaded market detail objects for block #%s", header.Number.String())
 		}()
 
