@@ -155,18 +155,25 @@ func (w *Watcher) process() error {
 				}(),
 			},
 		}
-		if err := w.Writer.WriteMarketsSummary(summary); err != nil {
-			logrus.WithError(err).Errorf("Failed to write markets summary to GCloud storage")
-			continue
-		}
-
-		logrus.Infof("Successfully uploaded markets summary for block #%s", header.Number.String())
-		lastProcessedBlockNumber = header.Number
 
 		go DebugMarkets(marketsData, m)
 
-		// Write snapshot async since it is not mission critical
+		blocker := sync.WaitGroup{}
+
+		blocker.Add(1)
 		go func() {
+			defer blocker.Done()
+			if err := w.Writer.WriteMarketsSummary(summary); err != nil {
+				logrus.WithError(err).Errorf("Failed to write markets summary to GCloud storage")
+				return
+			}
+			logrus.WithField("block", header.Number.String()).Infof("Successfully uploaded markets summary")
+		}()
+
+		// Write snapshot async since it is not mission critical
+		blocker.Add(1)
+		go func() {
+			defer blocker.Done()
 			snapshot := &markets.MarketsSnapshot{
 				MarketsSummary: summary,
 				MarketInfos:    mapMarketInfos(marketsData),
@@ -175,28 +182,31 @@ func (w *Watcher) process() error {
 				logrus.WithError(err).Errorf("Failed to write markets snapshot to GCloud storage")
 				return
 			}
-			logrus.Infof("Successfully uploaded markets snapshot for block #%s", header.Number.String())
-
+			logrus.WithField("block", header.Number.String()).Infof("Successfully uploaded markets snapshot")
 		}()
 
+		blocker.Add(1)
 		go func() {
-			wg := sync.WaitGroup{}
+			defer blocker.Done()
 			details := constructMarketDetails(m, marketsData)
+			wg := sync.WaitGroup{}
 			for file, _ := range details {
 				object, detail := file, details[file]
 				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					if err := w.Writer.WriteMarketDetail(object, detail); err != nil {
 						logrus.WithError(err).Errorf("Failed to write market detail to GCloud storage")
 					}
-					wg.Done()
 				}()
 			}
 			wg.Wait()
-			logrus.Infof("Successfully uploaded market detail objects for block #%s", header.Number.String())
+			logrus.WithField("block", header.Number.String()).Infof("Successfully uploaded market detail objects")
 		}()
 
-		logrus.WithField("blockNumber", header.Number.String()).Infof("Finished processing block")
+		blocker.Wait()
+		logrus.WithField("block", header.Number.String()).Infof("Finished processing block")
+		lastProcessedBlockNumber = header.Number
 	}
 }
 
