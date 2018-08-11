@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	MaxIdleConns        = 100
 	MaxIdleConnsPerHost = 50
 )
 
@@ -32,8 +33,8 @@ func NewStorageClient() (*storage.Client, error) {
 
 	// Create transport
 	transport, err := ghttp.NewTransport(context.TODO(), &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 50,
+		MaxIdleConns:        MaxIdleConns,
+		MaxIdleConnsPerHost: MaxIdleConnsPerHost,
 		IdleConnTimeout:     time.Minute,
 	}, options...)
 	if err != nil {

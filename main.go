@@ -71,12 +71,11 @@ func main() {
 	if err != nil {
 		logrus.WithError(err).Panicf("Failed to create a pricing client")
 	}
-	logrus.Printf("Pricing API Client: %#v", pricingAPI)
 
-	// GCloud API
-	gcloudStorageAPI, err := gcloud.NewStorageClient()
+	// FileUploaders
+	objectUploader, err := gcloud.NewObjectUploader()
 	if err != nil {
-		logrus.WithError(err).Panicf("Failed to create a GCloud Storge client")
+		logrus.WithError(err).Panicf("Failed to create object uploader")
 	}
 
 	// augur-node GRPC API
@@ -87,7 +86,8 @@ func main() {
 	}
 	augurAPI := augur.NewMarketsApiClient(augurAPIConn)
 
-	watcher := markets.NewWatcher(pricingAPI, web3API, augurAPI, gcloudStorageAPI)
+	// Start watching the chain
+	watcher := markets.NewWatcher(pricingAPI, web3API, augurAPI, objectUploader)
 	go watcher.Watch()
 
 	// Start HTTP server
