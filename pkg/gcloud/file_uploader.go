@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 
 	"cloud.google.com/go/storage"
-	"github.com/gogo/protobuf/proto"
+	"github.com/golang/protobuf/proto"
 )
 
 type UploadObjectRequest struct {
