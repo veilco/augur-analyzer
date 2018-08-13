@@ -41,9 +41,8 @@ type MarketsData struct {
 }
 
 type MarketData struct {
-	Info         *augur.MarketInfo
-	Orders       *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome
-	PriceHistory *augur.GetMarketPriceHistoryResponse
+	Info   *augur.MarketInfo
+	Orders *augur.GetOrdersResponse_OrdersByOrderIdByOrderTypeByOutcome
 }
 
 type ExchangeRates struct {
@@ -377,7 +376,7 @@ func (w *Watcher) translateMarketInfoToMarket(md *MarketData, ethusd, btceth flo
 		Tags:                 md.Info.Tags,
 		IsFeatured:           featured,
 		Category:             md.Info.Category,
-		LastTradeTime:        getLastTradeTimeFromPriceHistory(md.PriceHistory.MarketPriceHistory),
+		LastTradeTime:        md.Info.LastTradeTime,
 		BestBids:             bestBids,
 		BestAsks:             bestAsks,
 		Volume:               volume,
@@ -587,27 +586,6 @@ func (w *Watcher) getMarketsData(ctx context.Context, marketAddresses []string) 
 				marketDataByID[marketAddress].Orders = orders
 			}
 		}
-
-		// Market price history
-		bulkGetPriceHistoryResponse, err := w.AugurAPI.BulkGetMarketPriceHistory(context.TODO(), &augur.BulkGetMarketPriceHistoryRequest{
-			Requests: func() []*augur.GetMarketPriceHistoryRequest {
-				requests := []*augur.GetMarketPriceHistoryRequest{}
-				for _, address := range addresses {
-					requests = append(requests, &augur.GetMarketPriceHistoryRequest{
-						MarketId: address,
-					})
-				}
-				return requests
-			}(),
-		})
-		if err != nil {
-			logrus.WithError(err).Errorf("Call to augur-node `BulkGetMarketPriceHistory` failed")
-			return nil, err
-		}
-		for marketAddress, priceHistory := range bulkGetPriceHistoryResponse.ResponsesByMarketId {
-			marketDataByID[marketAddress].PriceHistory = priceHistory
-		}
-
 	}
 
 	// Query exchange rates
@@ -672,6 +650,8 @@ func mapMarketInfo(info *augur.MarketInfo) *markets.MarketInfo {
 		TickSize:              info.TickSize,
 		// Consensus:                 info.Consensus,
 		// Outcomes:                  info.Outcomes,
+		LastTradeTime:        info.LastTradeTime,
+		LastTradeBlockNumber: info.LastTradeBlockNumber,
 	}
 
 	// Map non equal types

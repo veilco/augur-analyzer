@@ -129,22 +129,6 @@ func printInputMarketData(id string, data *MarketData) {
 	} else {
 		logrus.WithField("marketId", id).Warnf("MarketData.Orders is nil")
 	}
-
-	if data.PriceHistory != nil {
-		for outcomeID, timestampedPrices := range data.PriceHistory.MarketPriceHistory.TimestampedPriceAmountByOutcome {
-			for _, timestampedPrice := range timestampedPrices.TimestampedPriceAmounts {
-				logrus.WithFields(logrus.Fields{
-					"marketId":  id,
-					"outcomeId": outcomeID,
-					"price":     timestampedPrice.Price,
-					"amount":    timestampedPrice.Amount,
-					"timestamp": timestampedPrice.Timestamp,
-				}).Warnf("Timestamped price with amount for outcome")
-			}
-		}
-	} else {
-		logrus.WithField("marketId", id).Warnf("MarketData.PriceHistory is nil")
-	}
 }
 
 func printOutputMarketData(data *markets.Market) {
